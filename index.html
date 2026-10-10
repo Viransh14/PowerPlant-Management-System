@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Power Plant Management System | Oracle ODBC GUI</title>
+    <meta name="description" content="Direct Oracle Database Management GUI with live ODBC API connection, relational CRUD, SQL console, and telemetry reports.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo-box">
+                    <i class="fa-solid fa-bolt-lightning logo-icon"></i>
+                    <div class="logo-text">
+                        <span class="logo-title">GRIDPULSE</span>
+                        <span class="logo-subtitle">Oracle ODBC GUI</span>
+                    </div>
+                </div>
+                <button class="sidebar-toggle-btn" id="sidebarToggle" title="Toggle Sidebar">
+                    <i class="fa-solid fa-chevron-left"></i>
+                </button>
+            </div>
+
+            <div class="sidebar-nav-label">DATABASE CONNECTION</div>
+            <div class="sidebar-odbc-status-card" id="sidebarOdbcCard">
+                <div class="odbc-status-header">
+                    <span class="status-indicator-dot" id="sidebarStatusDot"></span>
+                    <strong id="sidebarStatusText">Disconnected</strong>
+                </div>
+                <p id="sidebarStatusSub">Click below to connect Oracle database</p>
+                <button class="btn btn-sm btn-primary w-100" id="btnSidebarOdbcLogin" onclick="openModal('modal-odbc-login')">
+                    <i class="fa-solid fa-database"></i> <span id="sidebarBtnText">ODBC Login</span>
+                </button>
+            </div>
+
+            <div class="sidebar-nav-label">MAIN NAVIGATION</div>
+            <nav class="sidebar-nav">
+                <button class="nav-item active" data-tab="dashboard" id="nav-dashboard">
+                    <i class="fa-solid fa-chart-line"></i>
+                    <span>Dashboard</span>
+                </button>
+                <button class="nav-item" data-tab="plants" id="nav-plants">
+                    <i class="fa-solid fa-industry"></i>
+                    <span>Power Plants</span>
+                    <span class="badge" id="badge-plants">0</span>
+                </button>
+                <button class="nav-item" data-tab="generators" id="nav-generators">
+                    <i class="fa-solid fa-gears"></i>
+                    <span>Generators</span>
+                    <span class="badge" id="badge-generators">0</span>
+                </button>
+                <button class="nav-item" data-tab="employees" id="nav-employees">
+                    <i class="fa-solid fa-users-gear"></i>
+                    <span>Employees</span>
+                    <span class="badge" id="badge-employees">0</span>
+                </button>
+                <button class="nav-item" data-tab="records" id="nav-records">
+                    <i class="fa-solid fa-file-invoice"></i>
+                    <span>Generation Records</span>
+                    <span class="badge" id="badge-records">0</span>
+                </button>
+                <button class="nav-item" data-tab="maintenance" id="nav-maintenance">
+                    <i class="fa-solid fa-wrench"></i>
+                    <span>Maintenance Logs</span>
+                    <span class="badge" id="badge-maintenance">0</span>
+                </button>
+
+                <div class="sidebar-nav-label">QUERIES & ANALYTICS</div>
+                <button class="nav-item" data-tab="reports" id="nav-reports">
+                    <i class="fa-solid fa-chart-pie"></i>
+                    <span>DQL & Reports</span>
+                </button>
+                <button class="nav-item" data-tab="ddl" id="nav-ddl">
+                    <i class="fa-solid fa-database"></i>
+                    <span>DDL & Schema</span>
+                </button>
+                <button class="nav-item" data-tab="sql" id="nav-sql">
+                    <i class="fa-solid fa-terminal"></i>
+                    <span>SQL Terminal</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="db-mode-indicator" id="footerDbMode">
+                    <small>Active Database Engine:</small>
+                    <strong id="db-engine-name">Live Oracle ODBC</strong>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-wrapper">
+            <!-- Top Navbar -->
+            <header class="top-navbar">
+                <div class="nav-left">
+                    <button class="mobile-menu-btn" id="mobileMenuBtn">
+                        <i class="fa-solid fa-bars"></i>
+                    </button>
+                    <div class="page-breadcrumb">
+                        <span id="breadcrumb-section">Operations</span> / <strong id="breadcrumb-page">Dashboard</strong>
+                    </div>
+                </div>
+
+                <div class="nav-center">
+                    <div class="search-bar-global">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input type="text" id="globalSearchInput" placeholder="Live search Oracle tables...">
+                    </div>
+                </div>
+
+                <div class="nav-right">
+                    <!-- Live ODBC Session Pill in Header -->
+                    <div class="header-odbc-pill" id="headerOdbcPill" onclick="openModal('modal-odbc-login')">
+                        <span class="pulse-dot" id="headerPulseDot"></span>
+                        <div class="pill-info">
+                            <span class="pill-title" id="headerOdbcTitle">ODBC: Disconnected</span>
+                            <small id="headerOdbcSub">Click to Login</small>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-outline btn-sm" id="btnSyncDb" title="Sync / Refresh Data from Oracle" onclick="syncDatabaseFromOracle()">
+                        <i class="fa-solid fa-rotate"></i> <span>Sync</span>
+                    </button>
+                    <button class="btn btn-outline btn-sm" id="btnExportSql" title="Export Oracle SQL Script" onclick="exportDatabaseSQL()">
+                        <i class="fa-solid fa-file-code"></i> <span>Export SQL</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Notification Banner if Disconnected or Tables Empty -->
+            <div class="db-banner-warning" id="dbWarningBanner" style="display:none;">
+                <div class="banner-content">
+                    <i class="fa-solid fa-circle-exclamation"></i>
+                    <span id="bannerWarningText">Not connected to Oracle database via ODBC. Working with local cached data.</span>
+                </div>
+                <div class="banner-actions">
+                    <button class="btn btn-sm btn-primary" onclick="openModal('modal-odbc-login')">ODBC Login</button>
+                </div>
+            </div>
+
+            <!-- Tab Contents Container -->
+            <div class="content-container">
+
+                <!-- 1. DASHBOARD TAB -->
+                <section class="tab-content active" id="tab-dashboard">
+                    <!-- Hero Banner -->
+                    <div class="dashboard-hero">
+                        <div class="hero-text">
+                            <h2>Power Plant Operational Grid</h2>
+                            <p>Direct Oracle XE database telemetry, relational integrity monitoring, and energy generation statistics.</p>
+                        </div>
+                        <div class="hero-actions">
+                            <button class="btn btn-primary" onclick="openModal('modal-add-plant')">
+                                <i class="fa-solid fa-plus"></i> Add Power Plant
+                            </button>
+                            <button class="btn btn-glass" onclick="switchTab('reports')">
+                                <i class="fa-solid fa-chart-column"></i> View Reports
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- KPI Cards Grid -->
+                    <div class="kpi-grid">
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <span class="kpi-title">Total Power Plants</span>
+                                <div class="kpi-icon icon-cyan"><i class="fa-solid fa-industry"></i></div>
+                            </div>
+                            <div class="kpi-body">
+                                <h3 class="kpi-value" id="kpi-total-plants">0</h3>
+                                <div class="kpi-trend positive">
+                                    <i class="fa-solid fa-arrow-up"></i> <span id="kpi-active-locations">0 Locations</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <span class="kpi-title">Total Grid Capacity</span>
+                                <div class="kpi-icon icon-amber"><i class="fa-solid fa-bolt"></i></div>
+                            </div>
+                            <div class="kpi-body">
+                                <h3 class="kpi-value" id="kpi-total-capacity">0 MW</h3>
+                                <div class="kpi-trend positive">
+                                    <i class="fa-solid fa-gauge-high"></i> Max Peak Load
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <span class="kpi-title">Active Generators</span>
+                                <div class="kpi-icon icon-emerald"><i class="fa-solid fa-gears"></i></div>
+                            </div>
+                            <div class="kpi-body">
+                                <h3 class="kpi-value" id="kpi-active-generators">0 / 0</h3>
+                                <div class="kpi-trend neutral">
+                                    <i class="fa-solid fa-circle-check"></i> <span id="kpi-generator-health">100% Operational</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <span class="kpi-title">Total Units Generated</span>
+                                <div class="kpi-icon icon-violet"><i class="fa-solid fa-plug-circle-bolt"></i></div>
+                            </div>
+                            <div class="kpi-body">
+                                <h3 class="kpi-value" id="kpi-total-units">0 MWh</h3>
+                                <div class="kpi-trend positive">
+                                    <i class="fa-solid fa-arrow-trend-up"></i> <span id="kpi-record-count">0 Records</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Charts Grid -->
+                    <div class="charts-grid">
+                        <div class="chart-card">
+                            <div class="chart-card-header">
+                                <div class="title-wrap">
+                                    <h4>Plant Capacity Distribution</h4>
+                                    <p>Megawatt (MW) capacity comparison across operational plants</p>
+                                </div>
+                            </div>
+                            <div class="chart-body">
+                                <canvas id="chartCapacity"></canvas>
+                            </div>
+                        </div>
+
+                        <div class="chart-card">
+                            <div class="chart-card-header">
+                                <div class="title-wrap">
+                                    <h4>Generation Output by Facility</h4>
+                                    <p>Sum of units generated aggregated by plant</p>
+                                </div>
+                            </div>
+                            <div class="chart-body">
+                                <canvas id="chartGenerationShare"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Overview Tables -->
+                    <div class="dashboard-split-grid">
+                        <div class="card-panel">
+                            <div class="panel-header">
+                                <h4><i class="fa-solid fa-industry"></i> Power Plants Overview</h4>
+                                <button class="btn btn-sm btn-ghost" onclick="switchTab('plants')">View All <i class="fa-solid fa-arrow-right"></i></button>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Plant Name</th>
+                                            <th>Location</th>
+                                            <th>Capacity (MW)</th>
+                                            <th>Generators</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="dashboard-plants-tbody">
+                                        <!-- Rendered via JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="card-panel">
+                            <div class="panel-header">
+                                <h4><i class="fa-solid fa-clock-rotate-left"></i> Recent Generation Records</h4>
+                                <button class="btn btn-sm btn-ghost" onclick="switchTab('records')">View All <i class="fa-solid fa-arrow-right"></i></button>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Record ID</th>
+                                            <th>Plant</th>
+                                            <th>Date</th>
+                                            <th>Units (MWh)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="dashboard-records-tbody">
+                                        <!-- Rendered via JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 2. POWER PLANTS TAB -->
+                <section class="tab-content" id="tab-plants">
+                    <div class="section-toolbar">
+                        <div class="toolbar-title">
+                            <h3><i class="fa-solid fa-industry"></i> Power Plants (POWER_PLANT)</h3>
+                            <p>Schema: <code>PLANT_ID NUMBER PK, PLANT_NAME VARCHAR2(100), LOCATION VARCHAR2(100), CAPACITY_MW NUMBER</code></p>
+                        </div>
+                        <div class="toolbar-actions">
+                            <div class="search-box">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="searchPlants" placeholder="Filter plants by name or location...">
+                            </div>
+                            <button class="btn btn-primary" onclick="openModal('modal-add-plant')">
+                                <i class="fa-solid fa-plus"></i> New Power Plant
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card-panel">
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-plants">
+                                <thead>
+                                    <tr>
+                                        <th onclick="sortTable('plants', 'PLANT_ID')">Plant ID <i class="fa-solid fa-sort"></i></th>
+                                        <th onclick="sortTable('plants', 'PLANT_NAME')">Plant Name <i class="fa-solid fa-sort"></i></th>
+                                        <th onclick="sortTable('plants', 'LOCATION')">Location <i class="fa-solid fa-sort"></i></th>
+                                        <th onclick="sortTable('plants', 'CAPACITY_MW')">Capacity (MW) <i class="fa-solid fa-sort"></i></th>
+                                        <th>Staff Count</th>
+                                        <th>Generators</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="plants-tbody">
+                                    <!-- Rendered via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 3. GENERATORS TAB -->
+                <section class="tab-content" id="tab-generators">
+                    <div class="section-toolbar">
+                        <div class="toolbar-title">
+                            <h3><i class="fa-solid fa-gears"></i> Generators (GENERATOR)</h3>
+                            <p>Schema: <code>GENERATOR_ID NUMBER PK, PLANT_ID NUMBER FK, GENERATOR_NAME VARCHAR2(100), STATUS VARCHAR2(20)</code></p>
+                        </div>
+                        <div class="toolbar-actions">
+                            <select id="filterGeneratorStatus" class="filter-select" onchange="filterGenerators()">
+                                <option value="">All Statuses</option>
+                                <option value="Active">Active</option>
+                                <option value="Maintenance">Maintenance</option>
+                                <option value="Standby">Standby</option>
+                                <option value="Inactive">Inactive</option>
+                            </select>
+                            <div class="search-box">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="searchGenerators" placeholder="Search generators...">
+                            </div>
+                            <button class="btn btn-primary" onclick="openModal('modal-add-generator')">
+                                <i class="fa-solid fa-plus"></i> Add Generator
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card-panel">
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-generators">
+                                <thead>
+                                    <tr>
+                                        <th onclick="sortTable('generators', 'GENERATOR_ID')">Generator ID <i class="fa-solid fa-sort"></i></th>
+                                        <th onclick="sortTable('generators', 'GENERATOR_NAME')">Generator Name <i class="fa-solid fa-sort"></i></th>
+                                        <th>Associated Plant</th>
+                                        <th onclick="sortTable('generators', 'STATUS')">Status <i class="fa-solid fa-sort"></i></th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="generators-tbody">
+                                    <!-- Rendered via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 4. EMPLOYEES TAB -->
+                <section class="tab-content" id="tab-employees">
+                    <div class="section-toolbar">
+                        <div class="toolbar-title">
+                            <h3><i class="fa-solid fa-users-gear"></i> Staff & Employees (EMPLOYEE)</h3>
+                            <p>Schema: <code>EMPLOYEE_ID NUMBER PK, EMPLOYEE_NAME VARCHAR2(100), ROLE VARCHAR2(50), PLANT_ID NUMBER FK</code></p>
+                        </div>
+                        <div class="toolbar-actions">
+                            <select id="filterEmployeeRole" class="filter-select" onchange="filterEmployees()">
+                                <option value="">All Roles</option>
+                                <option value="Engineer">Engineer</option>
+                                <option value="Operator">Operator</option>
+                                <option value="Technician">Technician</option>
+                                <option value="Manager">Manager</option>
+                                <option value="Safety Officer">Safety Officer</option>
+                            </select>
+                            <div class="search-box">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="searchEmployees" placeholder="Search employee name or role...">
+                            </div>
+                            <button class="btn btn-primary" onclick="openModal('modal-add-employee')">
+                                <i class="fa-solid fa-plus"></i> Add Employee
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card-panel">
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-employees">
+                                <thead>
+                                    <tr>
+                                        <th onclick="sortTable('employees', 'EMPLOYEE_ID')">Employee ID <i class="fa-solid fa-sort"></i></th>
+                                        <th onclick="sortTable('employees', 'EMPLOYEE_NAME')">Employee Name <i class="fa-solid fa-sort"></i></th>
+                                        <th onclick="sortTable('employees', 'ROLE')">Role <i class="fa-solid fa-sort"></i></th>
+                                        <th>Assigned Plant</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="employees-tbody">
+                                    <!-- Rendered via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 5. GENERATION RECORDS TAB -->
+                <section class="tab-content" id="tab-records">
+                    <div class="section-toolbar">
+                        <div class="toolbar-title">
+                            <h3><i class="fa-solid fa-file-invoice"></i> Generation Output (GENERATION_RECORD)</h3>
+                            <p>Schema: <code>RECORD_ID NUMBER PK, PLANT_ID NUMBER FK, GENERATION_DATE DATE, UNITS_GENERATED NUMBER</code></p>
+                        </div>
+                        <div class="toolbar-actions">
+                            <select id="filterRecordPlant" class="filter-select" onchange="filterRecords()">
+                                <option value="">All Plants</option>
+                            </select>
+                            <div class="search-box">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="searchRecords" placeholder="Search by date or plant...">
+                            </div>
+                            <button class="btn btn-primary" onclick="openModal('modal-add-record')">
+                                <i class="fa-solid fa-plus"></i> Log Output Record
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card-panel">
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-records">
+                                <thead>
+                                    <tr>
+                                        <th onclick="sortTable('records', 'RECORD_ID')">Record ID <i class="fa-solid fa-sort"></i></th>
+                                        <th>Plant Name</th>
+                                        <th onclick="sortTable('records', 'GENERATION_DATE')">Generation Date <i class="fa-solid fa-sort"></i></th>
+                                        <th onclick="sortTable('records', 'UNITS_GENERATED')">Units Generated (MWh) <i class="fa-solid fa-sort"></i></th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="records-tbody">
+                                    <!-- Rendered via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 6. MAINTENANCE LOGS TAB -->
+                <section class="tab-content" id="tab-maintenance">
+                    <div class="section-toolbar">
+                        <div class="toolbar-title">
+                            <h3><i class="fa-solid fa-wrench"></i> Maintenance Logs (MAINTENANCE_LOG)</h3>
+                            <p>Schema: <code>LOG_ID NUMBER PK, PLANT_ID NUMBER FK, MAINTENANCE_DATE DATE, DESCRIPTION VARCHAR2(300), COST NUMBER, NOTES VARCHAR2(200)</code></p>
+                        </div>
+                        <div class="toolbar-actions">
+                            <button class="btn btn-primary" id="btnAddMaintenanceBtn" onclick="openModal('modal-add-maintenance')">
+                                <i class="fa-solid fa-plus"></i> Add Maintenance Log
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="maintenance-table-container" class="card-panel">
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-maintenance">
+                                <thead>
+                                    <tr>
+                                        <th>Log ID</th>
+                                        <th>Plant</th>
+                                        <th>Date</th>
+                                        <th>Description</th>
+                                        <th>Cost ($)</th>
+                                        <th id="th-notes-col">Notes</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="maintenance-tbody">
+                                    <!-- Rendered via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 7. DQL & REPORTS TAB -->
+                <section class="tab-content" id="tab-reports">
+                    <div class="section-toolbar">
+                        <div class="toolbar-title">
+                            <h3><i class="fa-solid fa-chart-pie"></i> Relational Reports & SQL Analytics</h3>
+                            <p>Interactive views for Assessment queries (JOIN, GROUP BY, SUM, COUNT, ORDER BY)</p>
+                        </div>
+                        <div class="toolbar-actions">
+                            <button class="btn btn-outline" onclick="exportReportCSV()">
+                                <i class="fa-solid fa-file-csv"></i> Export Current View (CSV)
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Report Selector Tabs -->
+                    <div class="sub-nav-tabs">
+                        <button class="sub-tab-btn active" onclick="loadReport(1, this)">
+                            <i class="fa-solid fa-chart-simple"></i> 1. Plant-wise Generation (JOIN, GROUP BY, SUM)
+                        </button>
+                        <button class="sub-tab-btn" onclick="loadReport(2, this)">
+                            <i class="fa-solid fa-arrow-down-wide-short"></i> 2. Plants Ordered by Capacity (ORDER BY)
+                        </button>
+                        <button class="sub-tab-btn" onclick="loadReport(3, this)">
+                            <i class="fa-solid fa-users"></i> 3. Employee Count Per Plant (COUNT)
+                        </button>
+                        <button class="sub-tab-btn" onclick="loadReport(4, this)">
+                            <i class="fa-solid fa-shield-halved"></i> 4. Generator Status Breakdown
+                        </button>
+                    </div>
+
+                    <div class="card-panel report-result-panel">
+                        <div class="report-header-info">
+                            <div class="report-title-box">
+                                <h4 id="report-title">Plant-wise Generation Report</h4>
+                                <span class="badge badge-info" id="report-query-badge">JOIN + GROUP BY + SUM + COUNT</span>
+                            </div>
+                            <div class="report-sql-snippet">
+                                <code id="report-sql-text">SELECT p.PLANT_NAME, p.CAPACITY_MW, NVL(SUM(g.UNITS_GENERATED),0) TOTAL_UNITS, COUNT(g.RECORD_ID) RECORD_COUNT FROM POWER_PLANT p LEFT JOIN GENERATION_RECORD g ON p.PLANT_ID=g.PLANT_ID GROUP BY p.PLANT_NAME, p.CAPACITY_MW ORDER BY TOTAL_UNITS DESC</code>
+                            </div>
+                        </div>
+
+                        <!-- Report Dynamic Chart -->
+                        <div class="report-chart-container" id="report-chart-wrap">
+                            <canvas id="reportDynamicChart"></canvas>
+                        </div>
+
+                        <!-- Report Table -->
+                        <div class="table-responsive">
+                            <table class="data-table" id="report-table">
+                                <thead id="report-thead">
+                                    <!-- Dynamic -->
+                                </thead>
+                                <tbody id="report-tbody">
+                                    <!-- Dynamic -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 8. DDL & SCHEMA VISUALIZER TAB -->
+                <section class="tab-content" id="tab-ddl">
+                    <div class="section-toolbar">
+                        <div class="toolbar-title">
+                            <h3><i class="fa-solid fa-database"></i> Database Definition & Schema Manager</h3>
+                            <p>Execute DDL commands directly on Oracle Schema (CREATE, ALTER, INSPECT)</p>
+                        </div>
+                    </div>
+
+                    <!-- DDL Actions Grid -->
+                    <div class="ddl-actions-grid">
+                        <div class="ddl-action-card">
+                            <div class="action-card-top">
+                                <div class="icon-bubble icon-emerald"><i class="fa-solid fa-table-plus"></i></div>
+                                <div>
+                                    <h5>CREATE TABLE Demo</h5>
+                                    <p>Creates <code>MAINTENANCE_LOG</code> with Foreign Key to <code>POWER_PLANT</code>.</p>
+                                </div>
+                            </div>
+                            <div class="sql-code-preview">
+                                <code>CREATE TABLE MAINTENANCE_LOG (LOG_ID NUMBER PRIMARY KEY, PLANT_ID NUMBER REFERENCES POWER_PLANT(PLANT_ID), MAINTENANCE_DATE DATE, DESCRIPTION VARCHAR2(300), COST NUMBER)</code>
+                            </div>
+                            <button class="btn btn-outline btn-sm" id="btnExecuteCreateML" onclick="executeDDLCreateML()">
+                                <i class="fa-solid fa-play"></i> Execute CREATE TABLE
+                            </button>
+                        </div>
+
+                        <div class="ddl-action-card">
+                            <div class="action-card-top">
+                                <div class="icon-bubble icon-amber"><i class="fa-solid fa-pen-ruler"></i></div>
+                                <div>
+                                    <h5>ALTER TABLE Demo</h5>
+                                    <p>Modifies <code>MAINTENANCE_LOG</code> schema to add column <code>NOTES</code>.</p>
+                                </div>
+                            </div>
+                            <div class="sql-code-preview">
+                                <code>ALTER TABLE MAINTENANCE_LOG ADD (NOTES VARCHAR2(200))</code>
+                            </div>
+                            <button class="btn btn-outline btn-sm" id="btnExecuteAlterML" onclick="executeDDLAlterML()">
+                                <i class="fa-solid fa-play"></i> Execute ALTER TABLE
+                            </button>
+                        </div>
+
+                        <div class="ddl-action-card">
+                            <div class="action-card-top">
+                                <div class="icon-bubble icon-cyan"><i class="fa-solid fa-table-columns"></i></div>
+                                <div>
+                                    <h5>USER_TAB_COLUMNS Inspector</h5>
+                                    <p>Query Oracle system data dictionary to view actual table schemas & column data types.</p>
+                                </div>
+                            </div>
+                            <div class="sql-code-preview">
+                                <code>SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE FROM USER_TAB_COLUMNS WHERE TABLE_NAME IN ('POWER_PLANT','GENERATOR','EMPLOYEE','GENERATION_RECORD','MAINTENANCE_LOG') ORDER BY TABLE_NAME, COLUMN_ID</code>
+                            </div>
+                            <button class="btn btn-outline btn-sm" onclick="inspectSchemaColumns()">
+                                <i class="fa-solid fa-magnifying-glass"></i> Inspect Columns
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Visual ER Schema Diagram -->
+                    <div class="card-panel">
+                        <div class="panel-header">
+                            <h4><i class="fa-solid fa-diagram-project"></i> Relational Schema Entity-Relationship Map</h4>
+                            <span class="badge badge-primary">Oracle 11g/XE Relational Schema</span>
+                        </div>
+                        <div class="schema-diagram">
+                            <!-- Table 1: POWER_PLANT -->
+                            <div class="schema-table-card primary-table">
+                                <div class="table-card-header">
+                                    <i class="fa-solid fa-industry"></i> POWER_PLANT
+                                    <span class="badge badge-success">Parent</span>
+                                </div>
+                                <div class="table-card-body">
+                                    <div class="column-row pk"><i class="fa-solid fa-key"></i> <strong>PLANT_ID</strong> <span>NUMBER [PK]</span></div>
+                                    <div class="column-row"><i class="fa-solid fa-font"></i> <span>PLANT_NAME</span> <span>VARCHAR2(100)</span></div>
+                                    <div class="column-row"><i class="fa-solid fa-location-dot"></i> <span>LOCATION</span> <span>VARCHAR2(100)</span></div>
+                                    <div class="column-row"><i class="fa-solid fa-bolt"></i> <span>CAPACITY_MW</span> <span>NUMBER</span></div>
+                                </div>
+                            </div>
+
+                            <div class="schema-connector">
+                                <i class="fa-solid fa-arrow-right"></i>
+                                <span>1 : N Relations</span>
+                            </div>
+
+                            <!-- Child Tables Group -->
+                            <div class="schema-children-group">
+                                <!-- GENERATOR -->
+                                <div class="schema-table-card">
+                                    <div class="table-card-header">
+                                        <i class="fa-solid fa-gears"></i> GENERATOR
+                                        <span class="badge badge-info">Child</span>
+                                    </div>
+                                    <div class="table-card-body">
+                                        <div class="column-row pk"><i class="fa-solid fa-key"></i> <strong>GENERATOR_ID</strong> <span>NUMBER [PK]</span></div>
+                                        <div class="column-row fk"><i class="fa-solid fa-link"></i> <em>PLANT_ID</em> <span>NUMBER [FK &rarr; POWER_PLANT]</span></div>
+                                        <div class="column-row"><i class="fa-solid fa-font"></i> <span>GENERATOR_NAME</span> <span>VARCHAR2(100)</span></div>
+                                        <div class="column-row"><i class="fa-solid fa-signal"></i> <span>STATUS</span> <span>VARCHAR2(20)</span></div>
+                                    </div>
+                                </div>
+
+                                <!-- EMPLOYEE -->
+                                <div class="schema-table-card">
+                                    <div class="table-card-header">
+                                        <i class="fa-solid fa-users-gear"></i> EMPLOYEE
+                                        <span class="badge badge-info">Child</span>
+                                    </div>
+                                    <div class="table-card-body">
+                                        <div class="column-row pk"><i class="fa-solid fa-key"></i> <strong>EMPLOYEE_ID</strong> <span>NUMBER [PK]</span></div>
+                                        <div class="column-row"><i class="fa-solid fa-font"></i> <span>EMPLOYEE_NAME</span> <span>VARCHAR2(100)</span></div>
+                                        <div class="column-row"><i class="fa-solid fa-briefcase"></i> <span>ROLE</span> <span>VARCHAR2(50)</span></div>
+                                        <div class="column-row fk"><i class="fa-solid fa-link"></i> <em>PLANT_ID</em> <span>NUMBER [FK &rarr; POWER_PLANT]</span></div>
+                                    </div>
+                                </div>
+
+                                <!-- GENERATION_RECORD -->
+                                <div class="schema-table-card">
+                                    <div class="table-card-header">
+                                        <i class="fa-solid fa-file-invoice"></i> GENERATION_RECORD
+                                        <span class="badge badge-info">Child</span>
+                                    </div>
+                                    <div class="table-card-body">
+                                        <div class="column-row pk"><i class="fa-solid fa-key"></i> <strong>RECORD_ID</strong> <span>NUMBER [PK]</span></div>
+                                        <div class="column-row fk"><i class="fa-solid fa-link"></i> <em>PLANT_ID</em> <span>NUMBER [FK &rarr; POWER_PLANT]</span></div>
+                                        <div class="column-row"><i class="fa-solid fa-calendar"></i> <span>GENERATION_DATE</span> <span>DATE</span></div>
+                                        <div class="column-row"><i class="fa-solid fa-gauge"></i> <span>UNITS_GENERATED</span> <span>NUMBER</span></div>
+                                    </div>
+                                </div>
+
+                                <!-- MAINTENANCE_LOG -->
+                                <div class="schema-table-card dynamic-table" id="card-schema-ml">
+                                    <div class="table-card-header">
+                                        <i class="fa-solid fa-wrench"></i> MAINTENANCE_LOG
+                                        <span class="badge badge-warning" id="schema-ml-badge">Active</span>
+                                    </div>
+                                    <div class="table-card-body">
+                                        <div class="column-row pk"><i class="fa-solid fa-key"></i> <strong>LOG_ID</strong> <span>NUMBER [PK]</span></div>
+                                        <div class="column-row fk"><i class="fa-solid fa-link"></i> <em>PLANT_ID</em> <span>NUMBER [FK &rarr; POWER_PLANT]</span></div>
+                                        <div class="column-row"><i class="fa-solid fa-calendar"></i> <span>MAINTENANCE_DATE</span> <span>DATE</span></div>
+                                        <div class="column-row"><i class="fa-solid fa-align-left"></i> <span>DESCRIPTION</span> <span>VARCHAR2(300)</span></div>
+                                        <div class="column-row"><i class="fa-solid fa-dollar-sign"></i> <span>COST</span> <span>NUMBER</span></div>
+                                        <div class="column-row" id="schema-notes-row"><i class="fa-solid fa-note-sticky"></i> <span>NOTES</span> <span>VARCHAR2(200)</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Schema Inspector Output Table -->
+                    <div class="card-panel" id="panel-schema-inspector">
+                        <div class="panel-header">
+                            <h4><i class="fa-solid fa-list-check"></i> USER_TAB_COLUMNS System Catalog (From Oracle)</h4>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>TABLE_NAME</th>
+                                        <th>COLUMN_ID</th>
+                                        <th>COLUMN_NAME</th>
+                                        <th>DATA_TYPE</th>
+                                        <th>NULLABLE</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="catalog-tbody">
+                                    <!-- Populated on click -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 9. SQL TERMINAL TAB -->
+                <section class="tab-content" id="tab-sql">
+                    <div class="section-toolbar">
+                        <div class="toolbar-title">
+                            <h3><i class="fa-solid fa-terminal"></i> Live Oracle SQL Query Playground</h3>
+                            <p>Executes queries directly against Oracle DB via ODBC API</p>
+                        </div>
+                    </div>
+
+                    <div class="sql-console-grid">
+                        <div class="sql-editor-card">
+                            <div class="editor-header">
+                                <span><i class="fa-solid fa-code"></i> SQL Query Console</span>
+                                <div class="editor-quick-actions">
+                                    <button class="btn btn-sm btn-ghost" onclick="clearSQLEditor()"><i class="fa-solid fa-eraser"></i> Clear</button>
+                                    <button class="btn btn-sm btn-primary" onclick="runCustomSQL()"><i class="fa-solid fa-play"></i> Run Query (Ctrl+Enter)</button>
+                                </div>
+                            </div>
+                            <div class="editor-body">
+                                <textarea id="sqlInput" spellcheck="false" placeholder="Write your SQL query here... e.g.&#10;SELECT p.PLANT_NAME, SUM(g.UNITS_GENERATED) AS TOTAL_GENERATED&#10;FROM POWER_PLANT p&#10;JOIN GENERATION_RECORD g ON p.PLANT_ID = g.PLANT_ID&#10;GROUP BY p.PLANT_NAME;"></textarea>
+                            </div>
+                            <div class="editor-footer">
+                                <span id="sql-execution-status">Ready to execute query on Oracle database</span>
+                                <small class="text-muted">Direct execution via ODBC Driver</small>
+                            </div>
+                        </div>
+
+                        <div class="sql-presets-card">
+                            <h5><i class="fa-solid fa-bookmark"></i> Quick Assessment Templates</h5>
+                            <div class="preset-queries-list">
+                                <button class="preset-btn" onclick="loadSQLPreset('all_plants')">
+                                    <strong>SELECT * FROM POWER_PLANT</strong>
+                                    <small>List all registered power plants</small>
+                                </button>
+                                <button class="preset-btn" onclick="loadSQLPreset('plant_generation_join')">
+                                    <strong>JOIN & SUM Generation Output</strong>
+                                    <small>Assessment Query 1: Plant-wise units generated</small>
+                                </button>
+                                <button class="preset-btn" onclick="loadSQLPreset('capacity_order')">
+                                    <strong>ORDER BY Capacity DESC</strong>
+                                    <small>Assessment Query 2: Ranked facilities</small>
+                                </button>
+                                <button class="preset-btn" onclick="loadSQLPreset('employee_count')">
+                                    <strong>GROUP BY & COUNT Employees</strong>
+                                    <small>Assessment Query 3: Staff per plant</small>
+                                </button>
+                                <button class="preset-btn" onclick="loadSQLPreset('active_generators')">
+                                    <strong>WHERE UPPER(STATUS) = 'ACTIVE'</strong>
+                                    <small>Filter operational generator units</small>
+                                </button>
+                                <button class="preset-btn" onclick="loadSQLPreset('user_tab_columns')">
+                                    <strong>SELECT * FROM USER_TAB_COLUMNS</strong>
+                                    <small>Query Oracle data dictionary catalog</small>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SQL Results Panel -->
+                    <div class="card-panel" style="margin-top: 1.5rem;">
+                        <div class="panel-header">
+                            <h4><i class="fa-solid fa-table"></i> Oracle Query Results Output</h4>
+                            <span class="badge badge-success" id="sql-row-count">0 rows returned</span>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table" id="sql-results-table">
+                                <thead id="sql-results-thead">
+                                    <tr><th>Execution output will appear here</th></tr>
+                                </thead>
+                                <tbody id="sql-results-tbody">
+                                    <tr><td>Execute a query above to view rows directly from Oracle</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- ================= MODALS ================= -->
+
+    <!-- Modal: ODBC LOGIN (The core requested feature!) -->
+    <div class="modal-overlay" id="modal-odbc-login">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h4><i class="fa-solid fa-database" style="color:var(--accent-cyan);"></i> Connect Oracle Database via ODBC</h4>
+                <button class="modal-close-btn" onclick="closeModal('modal-odbc-login')">&times;</button>
+            </div>
+            <form id="form-odbc-login" onsubmit="handleOdbcLogin(event)">
+                <div class="modal-body">
+                    <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:0.5rem;">
+                        Enter your Oracle ODBC DSN name and credentials to connect your database directly with this GUI without simulated or hallucinated data.
+                    </p>
+
+                    <div class="form-group">
+                        <label for="odbc-dsn">ODBC DSN Name <span class="required">*</span></label>
+                        <input type="text" id="odbc-dsn" required list="dsn-suggestions" placeholder="e.g. PowerPlantDSN, MDBMS_ORACLE, LabOracle">
+                        <datalist id="dsn-suggestions">
+                            <option value="PowerPlantDSN">
+                            <option value="MDBMS_ORACLE">
+                            <option value="LabOracle">
+                        </datalist>
+                        <small class="form-hint">Matches System/User DSN configured in ODBC Data Source Administrator (odbcad32.exe)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="odbc-user">Oracle Username <span class="required">*</span></label>
+                        <input type="text" id="odbc-user" required placeholder="e.g. 25BCE1371 or SYSTEM">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="odbc-pass">Oracle Password <span class="required">*</span></label>
+                        <input type="password" id="odbc-pass" required placeholder="Enter Oracle password">
+                    </div>
+
+                    <div id="odbc-login-error" class="alert-box alert-danger" style="display:none;">
+                        <i class="fa-solid fa-circle-exclamation"></i>
+                        <span id="odbc-error-msg">Connection failed</span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" id="btnDisconnectOdbc" style="display:none;" onclick="handleOdbcDisconnect()">
+                        <i class="fa-solid fa-power-off text-danger"></i> Disconnect
+                    </button>
+                    <button type="button" class="btn btn-outline" onclick="closeModal('modal-odbc-login')">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="btnSubmitOdbcLogin">
+                        <i class="fa-solid fa-link"></i> Connect via ODBC
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Add / Edit Power Plant -->
+    <div class="modal-overlay" id="modal-add-plant">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h4 id="modal-plant-title"><i class="fa-solid fa-industry"></i> Add Power Plant</h4>
+                <button class="modal-close-btn" onclick="closeModal('modal-add-plant')">&times;</button>
+            </div>
+            <form id="form-plant" onsubmit="savePlant(event)">
+                <input type="hidden" id="plant-mode" value="add">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="plant-id">Plant ID <span class="required">*</span></label>
+                        <input type="number" id="plant-id" required placeholder="e.g. 1" min="1">
+                        <small class="form-hint">Unique numeric primary key (PLANT_ID)</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="plant-name">Plant Name <span class="required">*</span></label>
+                        <input type="text" id="plant-name" required placeholder="e.g. Chennai Thermal Station" maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <label for="plant-location">Location <span class="required">*</span></label>
+                        <input type="text" id="plant-location" required placeholder="e.g. Chennai, Tamil Nadu" maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <label for="plant-capacity">Capacity (MW) <span class="required">*</span></label>
+                        <input type="number" id="plant-capacity" required placeholder="e.g. 450" min="1" step="0.1">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('modal-add-plant')">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save Power Plant</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Add / Edit Generator -->
+    <div class="modal-overlay" id="modal-add-generator">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h4 id="modal-generator-title"><i class="fa-solid fa-gears"></i> Add Generator</h4>
+                <button class="modal-close-btn" onclick="closeModal('modal-add-generator')">&times;</button>
+            </div>
+            <form id="form-generator" onsubmit="saveGenerator(event)">
+                <input type="hidden" id="generator-mode" value="add">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="generator-id">Generator ID <span class="required">*</span></label>
+                        <input type="number" id="generator-id" required placeholder="e.g. 101" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="generator-plant-id">Associated Power Plant <span class="required">*</span></label>
+                        <select id="generator-plant-id" required>
+                            <!-- Populated dynamically -->
+                        </select>
+                        <small class="form-hint">Foreign Key constraint &rarr; POWER_PLANT(PLANT_ID)</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="generator-name">Generator Name <span class="required">*</span></label>
+                        <input type="text" id="generator-name" required placeholder="e.g. Turbine Unit A-1" maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <label for="generator-status">Operating Status <span class="required">*</span></label>
+                        <select id="generator-status" required>
+                            <option value="Active">Active</option>
+                            <option value="Maintenance">Maintenance</option>
+                            <option value="Standby">Standby</option>
+                            <option value="Inactive">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('modal-add-generator')">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save Generator</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Add / Edit Employee -->
+    <div class="modal-overlay" id="modal-add-employee">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h4 id="modal-employee-title"><i class="fa-solid fa-users-gear"></i> Add Employee</h4>
+                <button class="modal-close-btn" onclick="closeModal('modal-add-employee')">&times;</button>
+            </div>
+            <form id="form-employee" onsubmit="saveEmployee(event)">
+                <input type="hidden" id="employee-mode" value="add">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="employee-id">Employee ID <span class="required">*</span></label>
+                        <input type="number" id="employee-id" required placeholder="e.g. 201" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="employee-name">Full Name <span class="required">*</span></label>
+                        <input type="text" id="employee-name" required placeholder="e.g. Rahul Sharma" maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <label for="employee-role">Designation / Role <span class="required">*</span></label>
+                        <input type="text" id="employee-role" required placeholder="e.g. Chief Power Engineer" maxlength="50">
+                    </div>
+                    <div class="form-group">
+                        <label for="employee-plant-id">Assigned Power Plant <span class="required">*</span></label>
+                        <select id="employee-plant-id" required>
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('modal-add-employee')">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save Employee</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Add / Edit Generation Record -->
+    <div class="modal-overlay" id="modal-add-record">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h4 id="modal-record-title"><i class="fa-solid fa-file-invoice"></i> Log Generation Record</h4>
+                <button class="modal-close-btn" onclick="closeModal('modal-add-record')">&times;</button>
+            </div>
+            <form id="form-record" onsubmit="saveRecord(event)">
+                <input type="hidden" id="record-mode" value="add">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="record-id">Record ID <span class="required">*</span></label>
+                        <input type="number" id="record-id" required placeholder="e.g. 301" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="record-plant-id">Power Plant <span class="required">*</span></label>
+                        <select id="record-plant-id" required>
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="record-date">Generation Date <span class="required">*</span></label>
+                        <input type="date" id="record-date" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="record-units">Units Generated (MWh) <span class="required">*</span></label>
+                        <input type="number" id="record-units" required placeholder="e.g. 1450" min="0" step="1">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('modal-add-record')">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save Record</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Add / Edit Maintenance Log -->
+    <div class="modal-overlay" id="modal-add-maintenance">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h4 id="modal-maintenance-title"><i class="fa-solid fa-wrench"></i> Log Maintenance Work</h4>
+                <button class="modal-close-btn" onclick="closeModal('modal-add-maintenance')">&times;</button>
+            </div>
+            <form id="form-maintenance" onsubmit="saveMaintenance(event)">
+                <input type="hidden" id="maintenance-mode" value="add">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="maint-id">Log ID <span class="required">*</span></label>
+                        <input type="number" id="maint-id" required placeholder="e.g. 501" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="maint-plant-id">Power Plant <span class="required">*</span></label>
+                        <select id="maint-plant-id" required>
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="maint-date">Maintenance Date <span class="required">*</span></label>
+                        <input type="date" id="maint-date" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="maint-desc">Description <span class="required">*</span></label>
+                        <input type="text" id="maint-desc" required placeholder="e.g. Turbine blade overhaul and sensor recalibration" maxlength="300">
+                    </div>
+                    <div class="form-group">
+                        <label for="maint-cost">Cost ($) <span class="required">*</span></label>
+                        <input type="number" id="maint-cost" required placeholder="e.g. 12500" min="0" step="100">
+                    </div>
+                    <div class="form-group" id="form-group-notes">
+                        <label for="maint-notes">Notes (ALTER TABLE column)</label>
+                        <input type="text" id="maint-notes" placeholder="e.g. Completed within scheduled 6-hour downtime" maxlength="200">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('modal-add-maintenance')">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save Log</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: View Plant Details & Relations -->
+    <div class="modal-overlay" id="modal-view-plant">
+        <div class="modal-card modal-large">
+            <div class="modal-header">
+                <h4 id="view-plant-title"><i class="fa-solid fa-industry"></i> Plant Facility Overview</h4>
+                <button class="modal-close-btn" onclick="closeModal('modal-view-plant')">&times;</button>
+            </div>
+            <div class="modal-body" id="view-plant-content">
+                <!-- Dynamically generated -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closeModal('modal-view-plant')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Confirm Delete -->
+    <div class="modal-overlay" id="modal-confirm-delete">
+        <div class="modal-card modal-sm">
+            <div class="modal-header">
+                <h4><i class="fa-solid fa-triangle-exclamation text-danger"></i> Confirm Deletion</h4>
+                <button class="modal-close-btn" onclick="closeModal('modal-confirm-delete')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="delete-confirm-message">Are you sure you want to delete this record? This will execute a real SQL DELETE in Oracle.</p>
+                <div class="alert-box alert-warning" id="delete-cascade-warning" style="display: none;">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    <span><strong>Foreign Key Cascade:</strong> Associated child records will also be removed.</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closeModal('modal-confirm-delete')">Cancel</button>
+                <button type="button" class="btn btn-danger" id="btnConfirmDeleteAction"><i class="fa-solid fa-trash"></i> Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Application Script -->
+    <script src="app.js"></script>
+</body>
+</html>

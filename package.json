@@ -1,0 +1,17 @@
+{
+  "name": "powerplant-assessment-gui",
+  "version": "1.0.0",
+  "description": "Interactive Web GUI and Dashboard for Power Plant Management System (DBMS Assessment)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "server": "node server.js",
+    "dev": "node server.js",
+    "health": "node -e \"fetch('http://localhost:3000/api/health').then(r=>r.json()).then(console.log).catch(console.error)\""
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "odbc": "^2.6.0"
+  }
+}
