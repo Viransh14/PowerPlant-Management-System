@@ -1445,9 +1445,11 @@ body {
     flex-direction: column;
     gap: 0.75rem;
     z-index: 999;
+    pointer-events: none;
 }
 
 .toast {
+    pointer-events: auto;
     background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
@@ -1503,4 +1505,75 @@ body {
     .nav-center {
         display: none;
     }
+}
+
+/* Dynamic Column Builder for Create Table */
+.col-builder-item {
+    background: #0f1420;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    transition: var(--transition-fast);
+}
+
+.col-builder-item:hover {
+    border-color: rgba(0, 242, 254, 0.3);
+}
+
+.col-builder-top {
+    display: grid;
+    grid-template-columns: 1.5fr 1.2fr auto;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.col-builder-bottom {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.75rem;
+    align-items: center;
+    font-size: 0.8rem;
+}
+
+.col-checkbox-group {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.col-checkbox-group label {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    margin: 0;
+}
+
+.col-checkbox-group input[type="checkbox"] {
+    accent-color: var(--accent-cyan);
+    cursor: pointer;
+}
+
+.col-ref-input {
+    font-size: 0.78rem !important;
+    padding: 0.35rem 0.5rem !important;
+}
+
+.btn-remove-col {
+    background: transparent;
+    border: none;
+    color: var(--accent-rose);
+    cursor: pointer;
+    padding: 0.4rem;
+    border-radius: var(--radius-sm);
+    transition: var(--transition-fast);
+}
+
+.btn-remove-col:hover {
+    background: rgba(244, 63, 94, 0.15);
 }

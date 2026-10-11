@@ -13,7 +13,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <!-- Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=2.3">
 </head>
 <body>
     <div class="app-layout">
@@ -38,54 +38,61 @@
                     <span class="status-indicator-dot" id="sidebarStatusDot"></span>
                     <strong id="sidebarStatusText">Disconnected</strong>
                 </div>
-                <p id="sidebarStatusSub">Click below to connect Oracle database</p>
-                <button class="btn btn-sm btn-primary w-100" id="btnSidebarOdbcLogin" onclick="openModal('modal-odbc-login')">
-                    <i class="fa-solid fa-database"></i> <span id="sidebarBtnText">ODBC Login</span>
-                </button>
+                <div class="sidebar-odbc-actions" style="display:flex; flex-direction:column; gap:0.4rem; margin-top:0.5rem;">
+                    <button class="btn btn-sm btn-primary w-100" id="btnSidebarOdbcLogin" onclick="openModal('modal-odbc-login')">
+                        <i class="fa-solid fa-database"></i> <span id="sidebarBtnText">ODBC Login</span>
+                    </button>
+                    <button class="btn btn-sm btn-outline w-100" id="btnSidebarSwitchUser" style="display:none;" onclick="openSwitchAccountModal()">
+                        <i class="fa-solid fa-users"></i> Switch User
+                    </button>
+                    <button class="btn btn-sm btn-danger w-100" id="btnSidebarLogout" style="display:none;" onclick="handleLogout()">
+                        <i class="fa-solid fa-right-from-bracket"></i> Logout
+                    </button>
+                </div>
             </div>
 
             <div class="sidebar-nav-label">MAIN NAVIGATION</div>
             <nav class="sidebar-nav">
-                <button class="nav-item active" data-tab="dashboard" id="nav-dashboard">
+                <button class="nav-item active" data-tab="dashboard" id="nav-dashboard" onclick="switchTab('dashboard')">
                     <i class="fa-solid fa-chart-line"></i>
                     <span>Dashboard</span>
                 </button>
-                <button class="nav-item" data-tab="plants" id="nav-plants">
+                <button class="nav-item" data-tab="plants" id="nav-plants" onclick="switchTab('plants')">
                     <i class="fa-solid fa-industry"></i>
                     <span>Power Plants</span>
                     <span class="badge" id="badge-plants">0</span>
                 </button>
-                <button class="nav-item" data-tab="generators" id="nav-generators">
+                <button class="nav-item" data-tab="generators" id="nav-generators" onclick="switchTab('generators')">
                     <i class="fa-solid fa-gears"></i>
                     <span>Generators</span>
                     <span class="badge" id="badge-generators">0</span>
                 </button>
-                <button class="nav-item" data-tab="employees" id="nav-employees">
+                <button class="nav-item" data-tab="employees" id="nav-employees" onclick="switchTab('employees')">
                     <i class="fa-solid fa-users-gear"></i>
                     <span>Employees</span>
                     <span class="badge" id="badge-employees">0</span>
                 </button>
-                <button class="nav-item" data-tab="records" id="nav-records">
+                <button class="nav-item" data-tab="records" id="nav-records" onclick="switchTab('records')">
                     <i class="fa-solid fa-file-invoice"></i>
                     <span>Generation Records</span>
                     <span class="badge" id="badge-records">0</span>
                 </button>
-                <button class="nav-item" data-tab="maintenance" id="nav-maintenance">
+                <button class="nav-item" data-tab="maintenance" id="nav-maintenance" onclick="switchTab('maintenance')">
                     <i class="fa-solid fa-wrench"></i>
                     <span>Maintenance Logs</span>
                     <span class="badge" id="badge-maintenance">0</span>
                 </button>
 
                 <div class="sidebar-nav-label">QUERIES & ANALYTICS</div>
-                <button class="nav-item" data-tab="reports" id="nav-reports">
+                <button class="nav-item" data-tab="reports" id="nav-reports" onclick="switchTab('reports')">
                     <i class="fa-solid fa-chart-pie"></i>
                     <span>DQL & Reports</span>
                 </button>
-                <button class="nav-item" data-tab="ddl" id="nav-ddl">
+                <button class="nav-item" data-tab="ddl" id="nav-ddl" onclick="switchTab('ddl')">
                     <i class="fa-solid fa-database"></i>
                     <span>DDL & Schema</span>
                 </button>
-                <button class="nav-item" data-tab="sql" id="nav-sql">
+                <button class="nav-item" data-tab="sql" id="nav-sql" onclick="switchTab('sql')">
                     <i class="fa-solid fa-terminal"></i>
                     <span>SQL Terminal</span>
                 </button>
@@ -129,6 +136,14 @@
                         </div>
                     </div>
 
+                    <!-- User Account & Session Actions -->
+                    <button class="btn btn-outline btn-sm" id="btnHeaderSwitchUser" title="Switch Oracle Database Account" onclick="openSwitchAccountModal()" style="display:none;">
+                        <i class="fa-solid fa-users"></i> <span>Switch User</span>
+                    </button>
+                    <button class="btn btn-danger btn-sm" id="btnHeaderLogout" title="Logout & Invalidate Session" onclick="handleLogout()" style="display:none;">
+                        <i class="fa-solid fa-right-from-bracket"></i> <span>Logout</span>
+                    </button>
+
                     <button class="btn btn-outline btn-sm" id="btnSyncDb" title="Sync / Refresh Data from Oracle" onclick="syncDatabaseFromOracle()">
                         <i class="fa-solid fa-rotate"></i> <span>Sync</span>
                     </button>
@@ -161,7 +176,7 @@
                             <p>Direct Oracle XE database telemetry, relational integrity monitoring, and energy generation statistics.</p>
                         </div>
                         <div class="hero-actions">
-                            <button class="btn btn-primary" onclick="openModal('modal-add-plant')">
+                            <button class="btn btn-primary" onclick="openAddPlant()">
                                 <i class="fa-solid fa-plus"></i> Add Power Plant
                             </button>
                             <button class="btn btn-glass" onclick="switchTab('reports')">
@@ -313,7 +328,7 @@
                                 <i class="fa-solid fa-magnifying-glass"></i>
                                 <input type="text" id="searchPlants" placeholder="Filter plants by name or location...">
                             </div>
-                            <button class="btn btn-primary" onclick="openModal('modal-add-plant')">
+                            <button class="btn btn-primary" onclick="openAddPlant()">
                                 <i class="fa-solid fa-plus"></i> New Power Plant
                             </button>
                         </div>
@@ -360,7 +375,7 @@
                                 <i class="fa-solid fa-magnifying-glass"></i>
                                 <input type="text" id="searchGenerators" placeholder="Search generators...">
                             </div>
-                            <button class="btn btn-primary" onclick="openModal('modal-add-generator')">
+                            <button class="btn btn-primary" onclick="openAddGenerator()">
                                 <i class="fa-solid fa-plus"></i> Add Generator
                             </button>
                         </div>
@@ -406,7 +421,7 @@
                                 <i class="fa-solid fa-magnifying-glass"></i>
                                 <input type="text" id="searchEmployees" placeholder="Search employee name or role...">
                             </div>
-                            <button class="btn btn-primary" onclick="openModal('modal-add-employee')">
+                            <button class="btn btn-primary" onclick="openAddEmployee()">
                                 <i class="fa-solid fa-plus"></i> Add Employee
                             </button>
                         </div>
@@ -447,7 +462,7 @@
                                 <i class="fa-solid fa-magnifying-glass"></i>
                                 <input type="text" id="searchRecords" placeholder="Search by date or plant...">
                             </div>
-                            <button class="btn btn-primary" onclick="openModal('modal-add-record')">
+                            <button class="btn btn-primary" onclick="openAddRecord()">
                                 <i class="fa-solid fa-plus"></i> Log Output Record
                             </button>
                         </div>
@@ -481,7 +496,7 @@
                             <p>Schema: <code>LOG_ID NUMBER PK, PLANT_ID NUMBER FK, MAINTENANCE_DATE DATE, DESCRIPTION VARCHAR2(300), COST NUMBER, NOTES VARCHAR2(200)</code></p>
                         </div>
                         <div class="toolbar-actions">
-                            <button class="btn btn-primary" id="btnAddMaintenanceBtn" onclick="openModal('modal-add-maintenance')">
+                            <button class="btn btn-primary" id="btnAddMaintenanceBtn" onclick="openAddMaintenance()">
                                 <i class="fa-solid fa-plus"></i> Add Maintenance Log
                             </button>
                         </div>
@@ -574,7 +589,46 @@
                     <div class="section-toolbar">
                         <div class="toolbar-title">
                             <h3><i class="fa-solid fa-database"></i> Database Definition & Schema Manager</h3>
-                            <p>Execute DDL commands directly on Oracle Schema (CREATE, ALTER, INSPECT)</p>
+                            <p>Execute DDL commands directly on Oracle Schema (CREATE, ALTER, INSPECT, DROP)</p>
+                        </div>
+                        <div class="toolbar-actions">
+                            <button class="btn btn-outline" onclick="loadOracleSchemaTables()">
+                                <i class="fa-solid fa-rotate"></i> Refresh Schema
+                            </button>
+                            <button class="btn btn-primary" id="btnOpenCreateTable" onclick="openCreateTableModal()">
+                                <i class="fa-solid fa-plus"></i> Create Table
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Custom Tables & Oracle Schema Catalog -->
+                    <div class="card-panel" style="margin-bottom: 1.5rem;">
+                        <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <h4><i class="fa-solid fa-table-list"></i> Oracle Schema Tables (USER_TABLES)</h4>
+                                <small style="color:var(--text-muted);">Live tables present in authenticated Oracle user schema</small>
+                            </div>
+                            <div style="display:flex; gap:0.5rem; align-items:center;">
+                                <button class="btn btn-primary btn-sm" onclick="openCreateTableModal()">
+                                    <i class="fa-solid fa-plus"></i> Create Table
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-user-tables">
+                                <thead>
+                                    <tr>
+                                        <th>Table Name</th>
+                                        <th>Classification</th>
+                                        <th>Columns</th>
+                                        <th>Status in Oracle</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="user-tables-tbody">
+                                    <!-- Populated dynamically via JS -->
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 
@@ -720,8 +774,17 @@
 
                     <!-- Schema Inspector Output Table -->
                     <div class="card-panel" id="panel-schema-inspector">
-                        <div class="panel-header">
+                        <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center;">
                             <h4><i class="fa-solid fa-list-check"></i> USER_TAB_COLUMNS System Catalog (From Oracle)</h4>
+                            <div style="display:flex; align-items:center; gap:0.5rem;">
+                                <label for="selectInspectTable" style="font-size:0.85rem; color:var(--text-muted); margin:0;">Filter Table:</label>
+                                <select id="selectInspectTable" class="filter-select" onchange="filterCatalogTable(this.value)">
+                                    <option value="">All Tables</option>
+                                </select>
+                                <button class="btn btn-outline btn-sm" onclick="inspectSchemaColumns()">
+                                    <i class="fa-solid fa-rotate"></i> Refresh
+                                </button>
+                            </div>
                         </div>
                         <div class="table-responsive">
                             <table class="data-table">
@@ -826,37 +889,61 @@
     <!-- ================= MODALS ================= -->
 
     <!-- Modal: ODBC LOGIN (The core requested feature!) -->
+    <!-- Modal: ODBC LOGIN & CONNECTION DETAILS -->
     <div class="modal-overlay" id="modal-odbc-login">
         <div class="modal-card">
             <div class="modal-header">
-                <h4><i class="fa-solid fa-database" style="color:var(--accent-cyan);"></i> Connect Oracle Database via ODBC</h4>
+                <h4 id="odbc-modal-title"><i class="fa-solid fa-database" style="color:var(--accent-cyan);"></i> Oracle Database Connection</h4>
                 <button class="modal-close-btn" onclick="closeModal('modal-odbc-login')">&times;</button>
             </div>
-            <form id="form-odbc-login" onsubmit="handleOdbcLogin(event)">
+
+            <!-- Active Connection Details Card (Visible when connected) -->
+            <div id="odbc-connected-details" style="display:none; padding:1.25rem; border-bottom:1px solid var(--border-color); background:rgba(16,185,129,0.05);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                    <div>
+                        <span class="badge badge-success"><i class="fa-solid fa-circle-check"></i> Connected Live to Oracle</span>
+                    </div>
+                    <span id="conn-detail-role" class="badge badge-primary">Administrator</span>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; font-size:0.85rem; margin-bottom:0.75rem;">
+                    <div><span style="color:var(--text-muted);">DSN:</span> <strong id="conn-detail-dsn" style="color:var(--accent-cyan);">PowerPlantDSN</strong></div>
+                    <div><span style="color:var(--text-muted);">User:</span> <strong id="conn-detail-user" style="color:var(--accent-emerald);">POWERPLANT</strong></div>
+                </div>
+                <div style="display:flex; gap:0.5rem;">
+                    <button type="button" class="btn btn-sm btn-outline" onclick="openSwitchAccountModal()">
+                        <i class="fa-solid fa-users"></i> Switch User
+                    </button>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="handleLogout()">
+                        <i class="fa-solid fa-right-from-bracket"></i> Disconnect & Logout
+                    </button>
+                </div>
+            </div>
+
+            <form id="form-odbc-login" onsubmit="event.preventDefault(); handleOdbcLogin(event); return false;">
                 <div class="modal-body">
-                    <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:0.5rem;">
-                        Enter your Oracle ODBC DSN name and credentials to connect your database directly with this GUI without simulated or hallucinated data.
+                    <p id="odbc-modal-instructions" style="color:var(--text-muted); font-size:0.85rem; margin-bottom:0.75rem;">
+                        Enter your Oracle ODBC DSN name and credentials to authenticate directly with Oracle XE.
                     </p>
 
                     <div class="form-group">
                         <label for="odbc-dsn">ODBC DSN Name <span class="required">*</span></label>
-                        <input type="text" id="odbc-dsn" required list="dsn-suggestions" placeholder="e.g. PowerPlantDSN, MDBMS_ORACLE, LabOracle">
+                        <input type="text" id="odbc-dsn" required list="dsn-suggestions" value="PowerPlantDSN" placeholder="e.g. PowerPlantDSN">
                         <datalist id="dsn-suggestions">
                             <option value="PowerPlantDSN">
                             <option value="MDBMS_ORACLE">
                             <option value="LabOracle">
                         </datalist>
-                        <small class="form-hint">Matches System/User DSN configured in ODBC Data Source Administrator (odbcad32.exe)</small>
+                        <small class="form-hint">Configured in 64-bit ODBC Data Source Administrator (odbcad32.exe)</small>
                     </div>
 
                     <div class="form-group">
                         <label for="odbc-user">Oracle Username <span class="required">*</span></label>
-                        <input type="text" id="odbc-user" required placeholder="e.g. 25BCE1371 or SYSTEM">
+                        <input type="text" id="odbc-user" required value="powerplant" placeholder="e.g. powerplant or SYSTEM">
                     </div>
 
                     <div class="form-group">
                         <label for="odbc-pass">Oracle Password <span class="required">*</span></label>
-                        <input type="password" id="odbc-pass" required placeholder="Enter Oracle password">
+                        <input type="password" id="odbc-pass" required value="Power123" placeholder="Enter Oracle password">
                     </div>
 
                     <div id="odbc-login-error" class="alert-box alert-danger" style="display:none;">
@@ -1075,6 +1162,63 @@
         </div>
     </div>
 
+    <!-- Modal: Create Oracle Database Table (DDL Builder) -->
+    <div class="modal-overlay" id="modal-create-table">
+        <div class="modal-card modal-large">
+            <div class="modal-header">
+                <h4><i class="fa-solid fa-table-plus" style="color:var(--accent-emerald);"></i> Create Database Table in Oracle</h4>
+                <button class="modal-close-btn" onclick="closeModal('modal-create-table')">&times;</button>
+            </div>
+            <form id="form-create-table" onsubmit="event.preventDefault(); handleCreateTable(event); return false;">
+                <div class="modal-body">
+                    <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:0.25rem;">
+                        Define table structure, columns, data types, and constraints to execute a real <code>CREATE TABLE</code> DDL statement on your live Oracle XE database.
+                    </p>
+
+                    <div class="form-group">
+                        <label for="create-table-name">Table Name <span class="required">*</span></label>
+                        <input type="text" id="create-table-name" required placeholder="e.g. SUBSTATION, TRANSFORMER, SOLAR_FARM" maxlength="30" oninput="updateDdlPreview()">
+                        <small class="form-hint">Oracle Identifier: 1-30 chars, starts with a letter, alphanumeric & underscore only.</small>
+                    </div>
+
+                    <div class="form-group">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                            <label style="margin:0;">Columns Definition <span class="required">*</span></label>
+                            <button type="button" class="btn btn-outline btn-sm" onclick="addColumnRow()">
+                                <i class="fa-solid fa-plus"></i> Add Column
+                            </button>
+                        </div>
+                        <div id="create-table-columns-list" style="display:flex; flex-direction:column; gap:0.6rem;">
+                            <!-- Column rows dynamically generated -->
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Generated Oracle DDL Preview</label>
+                        <pre id="create-table-ddl-preview" style="background:#0c101a; border:1px solid var(--border-color); border-radius:var(--radius-md); padding:0.85rem; font-family:var(--font-mono); font-size:0.85rem; color:var(--accent-cyan); overflow-x:auto; white-space:pre-wrap;"></pre>
+                        <small class="form-hint" style="color:var(--accent-amber);"><i class="fa-solid fa-triangle-exclamation"></i> Oracle Notice: DDL statements issue implicit COMMITs in Oracle Database. Transactions cannot be rolled back with standard ROLLBACK once created.</small>
+                    </div>
+
+                    <div id="create-table-error" class="alert-box alert-danger" style="display:none;">
+                        <i class="fa-solid fa-circle-exclamation"></i>
+                        <span id="create-table-error-msg"></span>
+                    </div>
+
+                    <div id="create-table-success" class="alert-box alert-success" style="display:none;">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <span id="create-table-success-msg"></span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('modal-create-table')">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="btnSubmitCreateTable">
+                        <i class="fa-solid fa-play"></i> Execute CREATE TABLE
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Modal: View Plant Details & Relations -->
     <div class="modal-overlay" id="modal-view-plant">
         <div class="modal-card modal-large">
@@ -1116,6 +1260,6 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <!-- Application Script -->
-    <script src="app.js"></script>
+    <script src="app.js?v=2.3"></script>
 </body>
 </html>

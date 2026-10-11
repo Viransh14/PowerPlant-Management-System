@@ -29,59 +29,161 @@ let currentReportData = [];
 let charts = {};
 let pendingDeleteAction = null;
 
-// Backend API Base Configuration
-// Dynamically detects whether running through local Express server or standalone file://
-const API_BASE = (function() {
-    if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
-        return ''; // Same-origin relative path when served by Express
+// Backend API Configuration (Strict Same-Origin)
+const API_BASE = '';
+let currentCsrfToken = '';
+
+function getCsrfToken() {
+    if (currentCsrfToken) return currentCsrfToken;
+    const match = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
+    if (match) {
+        currentCsrfToken = decodeURIComponent(match[1]);
+        return currentCsrfToken;
     }
-    // Fallback to local Express port if opened via file:// protocol
-    return 'http://localhost:3000';
-})();
+    return '';
+}
+
+async function ensureCsrfToken() {
+    let token = getCsrfToken();
+    if (!token) {
+        try {
+            const res = await fetch(apiUrl('/api/auth/csrf'), { credentials: 'same-origin' });
+            const data = await res.json();
+            if (data && data.csrfToken) {
+                currentCsrfToken = data.csrfToken;
+                token = data.csrfToken;
+            }
+        } catch (e) { /* ignore */ }
+    }
+    return token;
+}
 
 function apiUrl(endpoint) {
     return `${API_BASE}${endpoint}`;
 }
 
-// Initialization
-document.addEventListener('DOMContentLoaded', async () => {
+// Expose all functions globally immediately for early inline HTML event handlers
+function exposeGlobals() {
+    try {
+        Object.assign(window, {
+            openModal,
+            closeModal,
+            openAddPlant,
+            openAddGenerator,
+            openAddEmployee,
+            openAddRecord,
+            openAddMaintenance,
+            openEditPlant,
+            confirmDeletePlant,
+            viewPlantDetails,
+            openEditGenerator,
+            deleteGenerator,
+            openEditEmployee,
+            deleteEmployee,
+            openEditRecord,
+            deleteRecord,
+            openEditMaintenance,
+            deleteMaintenance,
+            savePlant,
+            saveGenerator,
+            saveEmployee,
+            saveRecord,
+            saveMaintenance,
+            handleOdbcLogin,
+            handleOdbcDisconnect,
+            handleLogout,
+            openSwitchAccountModal,
+            syncDatabaseFromOracle,
+            exportDatabaseSQL,
+            switchTab,
+            sortTable,
+            exportReportCSV,
+            loadReport,
+            executeDDLCreateML,
+            executeDDLAlterML,
+            inspectSchemaColumns,
+            clearSQLEditor,
+            runCustomSQL,
+            loadSQLPreset,
+            filterGenerators,
+            filterEmployees,
+            filterRecords,
+            showToast,
+            escapeHtml,
+            openCreateTableModal,
+            addColumnRow,
+            removeColumnRow,
+            onPkChange,
+            updateDdlPreview,
+            handleCreateTable,
+            confirmDropTable,
+            loadOracleSchemaTables,
+            filterCatalogTable
+        });
+    } catch (e) {
+        console.warn('Early exposeGlobals skipped:', e);
+    }
+}
+exposeGlobals();
+
+// Initialization with resilient readyState check
+async function initializeApp() {
+    exposeGlobals();
     initNavigation();
     initGlobalSearch();
     initModals();
     await checkOdbcStatus();
     renderAllViews();
     loadReport(1);
-    inspectSchemaColumns();
+    await loadOracleSchemaTables();
 
     // Auto prompt ODBC login if not connected
     if (!odbcState.connected) {
         setTimeout(() => {
             openModal('modal-odbc-login');
-        }, 600);
+        }, 500);
     }
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeApp);
+} else {
+    initializeApp();
+}
 
 // ODBC Connection Management
 async function checkOdbcStatus() {
     try {
-        const res = await fetch(apiUrl('/api/odbc/status'));
+        await ensureCsrfToken();
+        const res = await fetch(apiUrl('/api/odbc/status'), { credentials: 'same-origin' });
         const data = await res.json();
+        if (data.csrfToken) currentCsrfToken = data.csrfToken;
         if (data.connected) {
             odbcState = data;
             updateOdbcUI(true);
             await syncDatabaseFromOracle(false);
+            await loadOracleSchemaTables();
         } else {
+            odbcState = { connected: false, dsn: '', user: '', role: '', connectedAt: null };
             updateOdbcUI(false);
-            loadLocalState();
+            // In unauthenticated state, clear in-memory database to prevent displaying stale account data
+            DB.POWER_PLANT = [];
+            DB.GENERATOR = [];
+            DB.EMPLOYEE = [];
+            DB.GENERATION_RECORD = [];
+            DB.MAINTENANCE_LOG = [];
+            DB.USER_TABLES = [];
+            DB.USER_TAB_COLUMNS = [];
+            renderAllViews();
         }
     } catch (e) {
         console.warn("Backend server not reached or offline, running in standby mode:", e);
+        odbcState = { connected: false, dsn: '', user: '', role: '', connectedAt: null };
         updateOdbcUI(false);
-        loadLocalState();
 
         const bannerText = document.getElementById('bannerWarningText');
         if (bannerText && window.location.protocol === 'file:') {
-            bannerText.innerHTML = 'Running via <code>file://</code> protocol. For live Oracle database sync, start the server using <strong>start.bat</strong> and open <a href="http://localhost:3000" style="color:inherit; text-decoration:underline;">http://localhost:3000</a>.';
+            bannerText.innerHTML = 'Running via <code>file://</code> protocol. Please start the server using <strong>start.bat</strong> and open <a href="http://localhost:3000" style="color:inherit; text-decoration:underline;">http://localhost:3000</a>.';
         }
     }
 }
@@ -99,67 +201,131 @@ function updateOdbcUI(isConnected) {
     const btnDisconnect = document.getElementById('btnDisconnectOdbc');
     const btnSubmit = document.getElementById('btnSubmitOdbcLogin');
 
+    // Navbar & Sidebar Account Management Controls
+    const btnHeaderSwitch = document.getElementById('btnHeaderSwitchUser');
+    const btnHeaderLogout = document.getElementById('btnHeaderLogout');
+    const btnSidebarSwitch = document.getElementById('btnSidebarSwitchUser');
+    const btnSidebarLogout = document.getElementById('btnSidebarLogout');
+
+    // Connection Details Card in Login Modal
+    const connectedDetails = document.getElementById('odbc-connected-details');
+    const connDsn = document.getElementById('conn-detail-dsn');
+    const connUser = document.getElementById('conn-detail-user');
+    const connRole = document.getElementById('conn-detail-role');
+    const modalInstructions = document.getElementById('odbc-modal-instructions');
+    const modalTitle = document.getElementById('odbc-modal-title');
+
     if (isConnected) {
-        sidebarDot.className = 'status-indicator-dot connected';
-        sidebarText.textContent = `Connected (${odbcState.dsn})`;
-        sidebarSub.textContent = `User: ${odbcState.user} @ Oracle XE`;
-        sidebarBtnText.textContent = 'Connection Details';
+        const roleLabel = odbcState.role === 'admin' ? 'Administrator' : 'Operator';
+        if (sidebarDot) sidebarDot.className = 'status-indicator-dot connected';
+        if (sidebarText) sidebarText.textContent = `Connected (${odbcState.dsn})`;
+        if (sidebarSub) sidebarSub.textContent = `User: ${odbcState.user} (${roleLabel})`;
+        if (sidebarBtnText) sidebarBtnText.textContent = 'Connection Details';
 
-        headerDot.className = 'pulse-dot connected';
-        headerTitle.textContent = `ODBC: ${odbcState.dsn}`;
-        headerSub.textContent = `User: ${odbcState.user} (Live)`;
+        if (headerDot) headerDot.className = 'pulse-dot connected';
+        if (headerTitle) headerTitle.textContent = `ODBC: ${odbcState.dsn}`;
+        if (headerSub) headerSub.textContent = `User: ${odbcState.user} (${roleLabel})`;
 
-        dbEngineName.textContent = `Live Oracle XE (${odbcState.dsn})`;
-        dbEngineName.style.color = 'var(--accent-emerald)';
+        if (dbEngineName) {
+            dbEngineName.textContent = `Live Oracle XE (${odbcState.dsn}) [${roleLabel}]`;
+            dbEngineName.style.color = 'var(--accent-emerald)';
+        }
 
         if (warningBanner) warningBanner.style.display = 'none';
         if (btnDisconnect) btnDisconnect.style.display = 'inline-flex';
-        if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-rotate"></i> Reconnect / Switch DSN';
+        if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-rotate"></i> Reconnect / Switch User';
+
+        if (btnHeaderSwitch) btnHeaderSwitch.style.display = 'inline-flex';
+        if (btnHeaderLogout) btnHeaderLogout.style.display = 'inline-flex';
+        if (btnSidebarSwitch) btnSidebarSwitch.style.display = 'inline-flex';
+        if (btnSidebarLogout) btnSidebarLogout.style.display = 'inline-flex';
+
+        if (connectedDetails) connectedDetails.style.display = 'block';
+        if (connDsn) connDsn.textContent = odbcState.dsn;
+        if (connUser) connUser.textContent = odbcState.user;
+        if (connRole) connRole.textContent = roleLabel;
+        if (modalTitle) modalTitle.innerHTML = '<i class="fa-solid fa-circle-check" style="color:var(--accent-emerald);"></i> Oracle Connection Details';
+        if (modalInstructions) modalInstructions.textContent = 'Active Oracle session verified. To switch user or reconnect, enter new credentials below:';
     } else {
-        sidebarDot.className = 'status-indicator-dot';
-        sidebarText.textContent = 'Disconnected';
-        sidebarSub.textContent = 'Click below to connect Oracle database';
-        sidebarBtnText.textContent = 'ODBC Login';
+        if (sidebarDot) sidebarDot.className = 'status-indicator-dot';
+        if (sidebarText) sidebarText.textContent = 'Disconnected';
+        if (sidebarSub) sidebarSub.textContent = 'Click below to connect Oracle database';
+        if (sidebarBtnText) sidebarBtnText.textContent = 'ODBC Login';
 
-        headerDot.className = 'pulse-dot';
-        headerTitle.textContent = 'ODBC: Disconnected';
-        headerSub.textContent = 'Click to Login';
+        if (headerDot) headerDot.className = 'pulse-dot';
+        if (headerTitle) headerTitle.textContent = 'ODBC: Disconnected';
+        if (headerSub) headerSub.textContent = 'Click to Login';
 
-        dbEngineName.textContent = 'Local Standby Mode';
-        dbEngineName.style.color = 'var(--accent-amber)';
+        if (dbEngineName) {
+            dbEngineName.textContent = 'Authentication Required';
+            dbEngineName.style.color = 'var(--accent-amber)';
+        }
 
         if (warningBanner) {
             warningBanner.style.display = 'flex';
-            document.getElementById('bannerWarningText').textContent = 'Not connected to Oracle database. Click "ODBC Login" to connect your live tables via ODBC.';
+            const bText = document.getElementById('bannerWarningText');
+            if (bText) bText.textContent = 'Not connected to Oracle database. Click "ODBC Login" to authenticate and access live tables.';
         }
         if (btnDisconnect) btnDisconnect.style.display = 'none';
         if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-link"></i> Connect via ODBC';
+
+        if (btnHeaderSwitch) btnHeaderSwitch.style.display = 'none';
+        if (btnHeaderLogout) btnHeaderLogout.style.display = 'none';
+        if (btnSidebarSwitch) btnSidebarSwitch.style.display = 'none';
+        if (btnSidebarLogout) btnSidebarLogout.style.display = 'none';
+
+        if (connectedDetails) connectedDetails.style.display = 'none';
+        if (modalTitle) modalTitle.innerHTML = '<i class="fa-solid fa-database" style="color:var(--accent-cyan);"></i> Connect Oracle Database via ODBC';
+        if (modalInstructions) modalInstructions.textContent = 'Enter your Oracle ODBC DSN name and credentials to authenticate directly with Oracle XE.';
     }
 }
 
+
+let isOdbcSubmitting = false;
+
 async function handleOdbcLogin(event) {
-    event.preventDefault();
-    const dsn = document.getElementById('odbc-dsn').value.trim();
-    const user = document.getElementById('odbc-user').value.trim();
-    const pass = document.getElementById('odbc-pass').value;
+    if (event) {
+        if (typeof event.preventDefault === 'function') event.preventDefault();
+        if (typeof event.stopPropagation === 'function') event.stopPropagation();
+    }
+
+    if (isOdbcSubmitting) {
+        return;
+    }
+
+    const dsnInput = document.getElementById('odbc-dsn');
+    const userInput = document.getElementById('odbc-user');
+    const passInput = document.getElementById('odbc-pass');
     const errorBox = document.getElementById('odbc-login-error');
     const errorMsg = document.getElementById('odbc-error-msg');
     const submitBtn = document.getElementById('btnSubmitOdbcLogin');
 
+    const dsn = dsnInput ? dsnInput.value.trim() : '';
+    const user = userInput ? userInput.value.trim() : '';
+    const pass = passInput ? passInput.value : '';
+
     if (!dsn || !user) {
-        errorBox.style.display = 'flex';
-        errorMsg.textContent = 'Both ODBC DSN Name and Oracle Username are required.';
+        if (errorBox) errorBox.style.display = 'flex';
+        if (errorMsg) errorMsg.textContent = 'Both ODBC DSN Name and Oracle Username are required.';
         return;
     }
 
-    errorBox.style.display = 'none';
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Connecting via ODBC...';
+    if (errorBox) errorBox.style.display = 'none';
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Authenticating with Oracle...';
+    }
+    isOdbcSubmitting = true;
 
     try {
+        const csrfToken = await ensureCsrfToken();
         const res = await fetch(apiUrl('/api/odbc/connect'), {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            headers: { 
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
             body: JSON.stringify({ dsn, user, password: pass })
         });
         
@@ -175,48 +341,117 @@ async function handleOdbcLogin(event) {
                 connected: true,
                 dsn: data.dsn,
                 user: data.user,
+                role: data.role || 'operator',
                 connectedAt: new Date().toISOString()
             };
             updateOdbcUI(true);
             closeModal('modal-odbc-login');
-            showToast(`Connected to Oracle database [${dsn}] via ODBC!`, "success");
+            showToast(`Connected as ${data.role === 'admin' ? 'Administrator' : 'Operator'} to Oracle [${dsn}]!`, "success");
             await syncDatabaseFromOracle(true);
+            await loadOracleSchemaTables();
         } else {
-            errorBox.style.display = 'flex';
-            errorMsg.innerHTML = `<strong>Oracle ODBC Error:</strong><br>${escapeHtml(data.error || 'Failed to establish ODBC connection. Check DSN name, credentials, and Oracle XE service.')}`;
+            if (errorBox) errorBox.style.display = 'flex';
+            if (errorMsg) errorMsg.innerHTML = `<strong>Oracle Authentication Failed:</strong><br>${escapeHtml(data.error || 'Failed to authenticate connection.')}`;
             showToast("ODBC Connection Failed", "error");
         }
     } catch (e) {
-        errorBox.style.display = 'flex';
+        if (errorBox) errorBox.style.display = 'flex';
         const targetHost = API_BASE || window.location.origin;
         if (e.message && (e.message.includes('Failed to fetch') || e.message.includes('NetworkError'))) {
-            errorMsg.innerHTML = `<strong>Backend Server Offline:</strong> Could not connect to the Node.js API server at <code>${targetHost}</code>.<br><br>` +
-                `<strong>How to fix:</strong><br>` +
-                `1. Open Command Prompt or terminal in this folder.<br>` +
-                `2. Run <code>npm start</code> or double-click <code>start.bat</code>.<br>` +
-                `3. Once running, open <a href="http://localhost:3000" target="_blank" style="color:var(--accent-cyan); text-decoration:underline;">http://localhost:3000</a> in your browser.`;
+            if (errorMsg) {
+                errorMsg.innerHTML = `<strong>Backend Server Offline:</strong> Could not connect to the API server at <code>${targetHost}</code>.<br><br>` +
+                    `<strong>How to fix:</strong><br>` +
+                    `1. Open Command Prompt or terminal in this folder.<br>` +
+                    `2. Run <code>npm start</code> or double-click <code>start.bat</code>.<br>` +
+                    `3. Once running, open <a href="http://localhost:3000" target="_blank" style="color:var(--accent-cyan); text-decoration:underline;">http://localhost:3000</a> in your browser.`;
+            }
         } else {
-            errorMsg.innerHTML = `<strong>Connection Error:</strong> ${escapeHtml(e.message)}`;
+            if (errorMsg) errorMsg.innerHTML = `<strong>Connection Error:</strong> ${escapeHtml(e.message)}`;
         }
         showToast("Error connecting to backend server", "error");
     } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = odbcState.connected 
-            ? '<i class="fa-solid fa-rotate"></i> Reconnect / Switch DSN'
-            : '<i class="fa-solid fa-link"></i> Connect via ODBC';
+        isOdbcSubmitting = false;
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = odbcState.connected 
+                ? '<i class="fa-solid fa-rotate"></i> Reconnect / Switch User'
+                : '<i class="fa-solid fa-link"></i> Connect via ODBC';
+        }
     }
 }
 
-async function handleOdbcDisconnect() {
+window.handleOdbcLogin = handleOdbcLogin;
+window.handleOdbcDisconnect = handleOdbcDisconnect;
+window.handleLogout = handleLogout;
+window.openSwitchAccountModal = openSwitchAccountModal;
+
+async function handleLogout() {
     try {
-        await fetch(apiUrl('/api/odbc/disconnect'), { method: 'POST' });
-        odbcState = { connected: false, dsn: '', user: '', connectedAt: null };
-        updateOdbcUI(false);
-        closeModal('modal-odbc-login');
-        showToast("Disconnected from Oracle ODBC session.", "info");
+        const csrfToken = await ensureCsrfToken();
+        await fetch(apiUrl('/api/auth/logout'), { 
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            }
+        });
     } catch (e) {
-        console.error(e);
+        console.warn("Logout request error:", e);
     }
+
+    // Completely clear client session and database state
+    odbcState = { connected: false, dsn: '', user: '', role: '', connectedAt: null };
+    currentCsrfToken = '';
+    DB = {
+        POWER_PLANT: [],
+        GENERATOR: [],
+        EMPLOYEE: [],
+        GENERATION_RECORD: [],
+        MAINTENANCE_LOG: [],
+        USER_TABLES: [],
+        USER_TAB_COLUMNS: [],
+        SCHEMA_STATE: {
+            maintenanceTableCreated: false,
+            maintenanceHasNotes: false
+        }
+    };
+    localStorage.removeItem('GRIDPULSE_DB_STATE');
+
+    updateOdbcUI(false);
+    renderAllViews();
+    loadOracleSchemaTables();
+
+    // Close any open modals
+    document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+
+    showToast("Logged out successfully. All session state cleared.", "info");
+
+    // Clear password in login dialog ready for another user
+    const passInput = document.getElementById('odbc-pass');
+    if (passInput) passInput.value = '';
+    const errorBox = document.getElementById('odbc-login-error');
+    if (errorBox) errorBox.style.display = 'none';
+
+    setTimeout(() => {
+        openModal('modal-odbc-login');
+    }, 250);
+}
+
+async function handleOdbcDisconnect() {
+    await handleLogout();
+}
+
+function openSwitchAccountModal() {
+    const passInput = document.getElementById('odbc-pass');
+    if (passInput) passInput.value = '';
+    const errorBox = document.getElementById('odbc-login-error');
+    if (errorBox) errorBox.style.display = 'none';
+    const submitBtn = document.getElementById('btnSubmitOdbcLogin');
+    if (submitBtn) {
+        submitBtn.innerHTML = '<i class="fa-solid fa-users"></i> Switch User & Connect';
+    }
+    openModal('modal-odbc-login');
 }
 
 async function syncDatabaseFromOracle(showToastMessage = true) {
@@ -227,9 +462,16 @@ async function syncDatabaseFromOracle(showToastMessage = true) {
     }
 
     try {
-        const res = await fetch(apiUrl('/api/odbc/data'));
-        const data = await res.json();
+        const res = await fetch(apiUrl('/api/odbc/data'), { credentials: 'same-origin' });
+        if (res.status === 401) {
+            odbcState.connected = false;
+            updateOdbcUI(false);
+            showToast("Session expired. Please log in with ODBC again.", "error");
+            openModal('modal-odbc-login');
+            return;
+        }
 
+        const data = await res.json();
         if (data.success) {
             DB.POWER_PLANT = data.POWER_PLANT || [];
             DB.GENERATOR = data.GENERATOR || [];
@@ -645,69 +887,88 @@ function populatePlantDropdowns() {
     });
 }
 
+// Safe Chart.js Helpers
+function renderReportChart(canvas, config) {
+    if (!canvas || typeof Chart === 'undefined') return;
+    try {
+        if (charts.report) {
+            charts.report.destroy();
+            charts.report = null;
+        }
+        charts.report = new Chart(canvas, config);
+    } catch (e) {
+        console.warn('Report chart rendering skipped:', e);
+    }
+}
+
 // Charts
 function renderDashboardCharts() {
-    const ctxCap = document.getElementById('chartCapacity');
-    if (ctxCap) {
-        if (charts.capacity) charts.capacity.destroy();
+    if (typeof Chart === 'undefined') return;
+    try {
+        const ctxCap = document.getElementById('chartCapacity');
+        if (ctxCap) {
+            if (charts.capacity) charts.capacity.destroy();
 
-        const labels = DB.POWER_PLANT.map(p => String(p.PLANT_NAME).split(' ')[0] + ' ' + (String(p.PLANT_NAME).split(' ')[1] || ''));
-        const data = DB.POWER_PLANT.map(p => p.CAPACITY_MW);
+            const labels = DB.POWER_PLANT.map(p => String(p.PLANT_NAME).split(' ')[0] + ' ' + (String(p.PLANT_NAME).split(' ')[1] || ''));
+            const data = DB.POWER_PLANT.map(p => p.CAPACITY_MW);
 
-        charts.capacity = new Chart(ctxCap, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Capacity (MW)',
-                    data: data,
-                    backgroundColor: 'rgba(0, 242, 254, 0.65)',
-                    borderColor: '#00f2fe',
-                    borderWidth: 1.5,
-                    borderRadius: 6
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255, 255, 255, 0.04)' } },
-                    y: { ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255, 255, 255, 0.04)' } }
+            charts.capacity = new Chart(ctxCap, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Capacity (MW)',
+                        data: data,
+                        backgroundColor: 'rgba(0, 242, 254, 0.65)',
+                        borderColor: '#00f2fe',
+                        borderWidth: 1.5,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255, 255, 255, 0.04)' } },
+                        y: { ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255, 255, 255, 0.04)' } }
+                    }
                 }
-            }
-        });
-    }
+            });
+        }
 
-    const ctxShare = document.getElementById('chartGenerationShare');
-    if (ctxShare) {
-        if (charts.generation) charts.generation.destroy();
+        const ctxShare = document.getElementById('chartGenerationShare');
+        if (ctxShare) {
+            if (charts.generation) charts.generation.destroy();
 
-        const plantGenTotals = DB.POWER_PLANT.map(p => {
-            const sum = DB.GENERATION_RECORD
-                .filter(r => Number(r.PLANT_ID) === Number(p.PLANT_ID))
-                .reduce((acc, cur) => acc + Number(cur.UNITS_GENERATED || 0), 0);
-            return { name: p.PLANT_NAME, sum };
-        });
+            const plantGenTotals = DB.POWER_PLANT.map(p => {
+                const sum = DB.GENERATION_RECORD
+                    .filter(r => Number(r.PLANT_ID) === Number(p.PLANT_ID))
+                    .reduce((acc, cur) => acc + Number(cur.UNITS_GENERATED || 0), 0);
+                return { name: p.PLANT_NAME, sum };
+            });
 
-        charts.generation = new Chart(ctxShare, {
-            type: 'doughnut',
-            data: {
-                labels: plantGenTotals.map(p => p.name),
-                datasets: [{
-                    data: plantGenTotals.map(p => p.sum),
-                    backgroundColor: ['#00f2fe', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'],
-                    borderWidth: 2,
-                    borderColor: '#111622'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'right', labels: { color: '#9ca3af' } } },
-                cutout: '68%'
-            }
-        });
+            charts.generation = new Chart(ctxShare, {
+                type: 'doughnut',
+                data: {
+                    labels: plantGenTotals.map(p => p.name),
+                    datasets: [{
+                        data: plantGenTotals.map(p => p.sum),
+                        backgroundColor: ['#00f2fe', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'],
+                        borderWidth: 2,
+                        borderColor: '#111622'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'right', labels: { color: '#9ca3af' } } },
+                    cutout: '68%'
+                }
+            });
+        }
+    } catch (e) {
+        console.warn('Dashboard charts error:', e);
     }
 }
 
@@ -765,7 +1026,7 @@ async function loadReport(reportIndex, btnEl = null) {
             tbodyEl.appendChild(tr);
         });
 
-        charts.report = new Chart(chartWrap, {
+        renderReportChart(chartWrap, {
             type: 'bar',
             data: {
                 labels: currentReportData.map(r => r.name),
@@ -817,7 +1078,7 @@ async function loadReport(reportIndex, btnEl = null) {
             tbodyEl.appendChild(tr);
         });
 
-        charts.report = new Chart(chartWrap, {
+        renderReportChart(chartWrap, {
             type: 'bar',
             data: {
                 labels: currentReportData.map(r => r.PLANT_NAME),
@@ -870,7 +1131,7 @@ async function loadReport(reportIndex, btnEl = null) {
             tbodyEl.appendChild(tr);
         });
 
-        charts.report = new Chart(chartWrap, {
+        renderReportChart(chartWrap, {
             type: 'bar',
             data: {
                 labels: currentReportData.map(r => r.name),
@@ -930,7 +1191,7 @@ async function loadReport(reportIndex, btnEl = null) {
             tbodyEl.appendChild(tr);
         });
 
-        charts.report = new Chart(chartWrap, {
+        renderReportChart(chartWrap, {
             type: 'doughnut',
             data: {
                 labels: currentReportData.map(r => r.status),
@@ -969,89 +1230,480 @@ function exportReportCSV() {
     showToast("Report exported as CSV", "success");
 }
 
-// DDL Execution directly via ODBC
-async function executeDDLCreateML() {
-    const sql = "CREATE TABLE MAINTENANCE_LOG (LOG_ID NUMBER PRIMARY KEY, PLANT_ID NUMBER REFERENCES POWER_PLANT(PLANT_ID), MAINTENANCE_DATE DATE, DESCRIPTION VARCHAR2(300), COST NUMBER)";
-    await executeRawSql(sql, "Table MAINTENANCE_LOG created in Oracle.");
-    DB.SCHEMA_STATE.maintenanceTableCreated = true;
-    await syncDatabaseFromOracle(false);
-}
+// ================= SCHEMA & DDL MANAGEMENT =================
 
-async function executeDDLAlterML() {
-    const sql = "ALTER TABLE MAINTENANCE_LOG ADD (NOTES VARCHAR2(200))";
-    await executeRawSql(sql, "Table MAINTENANCE_LOG altered. Column NOTES added.");
-    DB.SCHEMA_STATE.maintenanceHasNotes = true;
-    await syncDatabaseFromOracle(false);
-}
+let createTableColumns = [];
 
-async function inspectSchemaColumns() {
-    const tbody = document.getElementById('catalog-tbody');
+async function loadOracleSchemaTables() {
+    const tbody = document.getElementById('user-tables-tbody');
     if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;"><i class="fa-solid fa-spinner fa-spin"></i> Querying Oracle USER_TAB_COLUMNS...</td></tr>';
 
-    const sql = "SELECT TABLE_NAME, COLUMN_ID, COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME IN ('POWER_PLANT','GENERATOR','EMPLOYEE','GENERATION_RECORD','MAINTENANCE_LOG') ORDER BY TABLE_NAME, COLUMN_ID";
-
-    if (odbcState.connected) {
-        try {
-            const res = await fetch(apiUrl('/api/odbc/query'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sql })
-            });
-            const data = await res.json();
-            if (data.success && data.rows) {
-                tbody.innerHTML = '';
-                data.rows.forEach(r => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td><strong>${r.TABLE_NAME}</strong></td>
-                        <td><code>${r.COLUMN_ID}</code></td>
-                        <td><code>${r.COLUMN_NAME}</code></td>
-                        <td><span class="badge badge-info">${r.DATA_TYPE}</span></td>
-                        <td>${r.NULLABLE}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-                return;
-            }
-        } catch (e) {
-            console.warn(e);
-        }
+    if (!odbcState.connected) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);"><i class="fa-solid fa-lock" style="margin-right:0.4rem;"></i> Connect Oracle database via ODBC to inspect live schema tables.</td></tr>';
+        return;
     }
 
-    // Fallback catalog
-    tbody.innerHTML = '';
-    const fallbackCatalog = [
-        { table: 'POWER_PLANT', id: 1, col: 'PLANT_ID', type: 'NUMBER', nullable: 'N [PK]' },
-        { table: 'POWER_PLANT', id: 2, col: 'PLANT_NAME', type: 'VARCHAR2(100)', nullable: 'N' },
-        { table: 'POWER_PLANT', id: 3, col: 'LOCATION', type: 'VARCHAR2(100)', nullable: 'Y' },
-        { table: 'POWER_PLANT', id: 4, col: 'CAPACITY_MW', type: 'NUMBER', nullable: 'Y' },
-        { table: 'GENERATOR', id: 1, col: 'GENERATOR_ID', type: 'NUMBER', nullable: 'N [PK]' },
-        { table: 'GENERATOR', id: 2, col: 'PLANT_ID', type: 'NUMBER', nullable: 'Y [FK]' },
-        { table: 'GENERATOR', id: 3, col: 'GENERATOR_NAME', type: 'VARCHAR2(100)', nullable: 'Y' },
-        { table: 'GENERATOR', id: 4, col: 'STATUS', type: 'VARCHAR2(20)', nullable: 'Y' },
-        { table: 'EMPLOYEE', id: 1, col: 'EMPLOYEE_ID', type: 'NUMBER', nullable: 'N [PK]' },
-        { table: 'EMPLOYEE', id: 2, col: 'EMPLOYEE_NAME', type: 'VARCHAR2(100)', nullable: 'Y' },
-        { table: 'EMPLOYEE', id: 3, col: 'ROLE', type: 'VARCHAR2(50)', nullable: 'Y' },
-        { table: 'EMPLOYEE', id: 4, col: 'PLANT_ID', type: 'NUMBER', nullable: 'Y [FK]' },
-        { table: 'GENERATION_RECORD', id: 1, col: 'RECORD_ID', type: 'NUMBER', nullable: 'N [PK]' },
-        { table: 'GENERATION_RECORD', id: 2, col: 'PLANT_ID', type: 'NUMBER', nullable: 'Y [FK]' },
-        { table: 'GENERATION_RECORD', id: 3, col: 'GENERATION_DATE', type: 'DATE', nullable: 'Y' },
-        { table: 'GENERATION_RECORD', id: 4, col: 'UNITS_GENERATED', type: 'NUMBER', nullable: 'Y' }
-    ];
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;"><i class="fa-solid fa-spinner fa-spin"></i> Querying Oracle USER_TABLES...</td></tr>';
 
-    fallbackCatalog.forEach(item => {
+    try {
+        const res = await fetch(apiUrl('/api/odbc/tables'), { credentials: 'same-origin' });
+        if (res.status === 401) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--accent-amber);">Session expired. Please reconnect with ODBC.</td></tr>';
+            return;
+        }
+
+        const data = await res.json();
+        if (data.success && Array.isArray(data.tables)) {
+            DB.USER_TABLES = data.tables;
+            DB.USER_TAB_COLUMNS = data.columns || [];
+
+            // Update dropdown in inspector
+            const selectInspect = document.getElementById('selectInspectTable');
+            if (selectInspect) {
+                const currentVal = selectInspect.value;
+                selectInspect.innerHTML = '<option value="">All Tables</option>';
+                data.tables.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t;
+                    opt.textContent = t;
+                    selectInspect.appendChild(opt);
+                });
+                if (currentVal && data.tables.includes(currentVal)) {
+                    selectInspect.value = currentVal;
+                }
+            }
+
+            renderUserTablesList();
+            renderCatalogTable(selectInspect ? selectInspect.value : '');
+        } else {
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--accent-rose);">Error: ${escapeHtml(data.error || 'Failed to query USER_TABLES')}</td></tr>`;
+        }
+    } catch (e) {
+        console.error("Failed to load tables:", e);
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--accent-rose);">Failed to fetch schema: ${escapeHtml(e.message)}</td></tr>`;
+    }
+}
+
+function renderUserTablesList() {
+    const tbody = document.getElementById('user-tables-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    const coreTables = ['POWER_PLANT', 'GENERATOR', 'EMPLOYEE', 'GENERATION_RECORD'];
+    const allTables = DB.USER_TABLES || [];
+
+    if (allTables.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No tables found in current Oracle schema. Click "Create Table" to add one.</td></tr>';
+        return;
+    }
+
+    allTables.forEach(t => {
+        const isCore = coreTables.includes(t);
+        const colCount = (DB.USER_TAB_COLUMNS || []).filter(c => c.TABLE_NAME === t).length;
+
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td><strong>${item.table}</strong></td>
-            <td><code>${item.id}</code></td>
-            <td><code>${item.col}</code></td>
-            <td><span class="badge badge-info">${item.type}</span></td>
-            <td>${item.nullable}</td>
+            <td>
+                <strong><i class="fa-solid fa-table" style="color:var(--accent-cyan); margin-right:0.4rem;"></i>${escapeHtml(t)}</strong>
+            </td>
+            <td>
+                <span class="badge ${isCore ? 'badge-primary' : (t === 'MAINTENANCE_LOG' ? 'badge-warning' : 'badge-info')}">
+                    ${isCore ? 'Core Assessment Table' : (t === 'MAINTENANCE_LOG' ? 'Assessment DDL Demo' : 'Custom User Table')}
+                </span>
+            </td>
+            <td>
+                <code>${colCount ? colCount + ' Columns' : 'Inspect'}</code>
+            </td>
+            <td>
+                <span style="color:var(--accent-emerald); font-size:0.85rem;">
+                    <i class="fa-solid fa-circle-check"></i> Verified in Oracle XE
+                </span>
+            </td>
+            <td>
+                <div class="row-actions" style="display:flex; gap:0.4rem;">
+                    <button class="btn btn-outline btn-xs" title="Inspect Columns in USER_TAB_COLUMNS" onclick="filterCatalogTable('${escapeHtml(t)}')">
+                        <i class="fa-solid fa-magnifying-glass"></i> Columns
+                    </button>
+                    ${!isCore ? `
+                        <button class="btn btn-danger btn-xs" title="Drop Table from Oracle" onclick="confirmDropTable('${escapeHtml(t)}')">
+                            <i class="fa-solid fa-trash"></i> Drop
+                        </button>
+                    ` : ''}
+                </div>
+            </td>
         `;
         tbody.appendChild(tr);
     });
 }
+
+function filterCatalogTable(tableName) {
+    const select = document.getElementById('selectInspectTable');
+    if (select) select.value = tableName;
+    renderCatalogTable(tableName);
+
+    const panel = document.getElementById('panel-schema-inspector');
+    if (panel) {
+        panel.scrollIntoView({ behavior: 'smooth' });
+    }
+}
+
+function renderCatalogTable(filterTable = '') {
+    const tbody = document.getElementById('catalog-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    let cols = DB.USER_TAB_COLUMNS || [];
+    if (filterTable) {
+        cols = cols.filter(c => c.TABLE_NAME === filterTable.toUpperCase());
+    }
+
+    if (cols.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">${filterTable ? `No columns found for table ${escapeHtml(filterTable)}` : 'No columns found in schema catalog.'}</td></tr>`;
+        return;
+    }
+
+    cols.forEach(c => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><strong>${escapeHtml(c.TABLE_NAME)}</strong></td>
+            <td><code>${c.COLUMN_ID}</code></td>
+            <td><code>${escapeHtml(c.COLUMN_NAME)}</code></td>
+            <td><span class="badge badge-info">${escapeHtml(c.DATA_TYPE)}${c.DATA_LENGTH && c.DATA_TYPE.includes('CHAR') ? '(' + c.DATA_LENGTH + ')' : ''}</span></td>
+            <td>${c.NULLABLE === 'N' ? '<strong style="color:var(--accent-amber);">NOT NULL</strong>' : 'NULL'}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+async function inspectSchemaColumns() {
+    await loadOracleSchemaTables();
+}
+
+// DDL Execution directly via ODBC
+async function executeDDLCreateML() {
+    if (!odbcState.connected) {
+        showToast("Please log in with ODBC first", "error");
+        openModal('modal-odbc-login');
+        return;
+    }
+    if (DB.USER_TABLES && DB.USER_TABLES.includes('MAINTENANCE_LOG')) {
+        showToast("Table MAINTENANCE_LOG already exists in Oracle schema.", "info");
+        await loadOracleSchemaTables();
+        return;
+    }
+    const sql = "CREATE TABLE MAINTENANCE_LOG (LOG_ID NUMBER PRIMARY KEY, PLANT_ID NUMBER REFERENCES POWER_PLANT(PLANT_ID), MAINTENANCE_DATE DATE, DESCRIPTION VARCHAR2(300), COST NUMBER)";
+    const success = await executeRawSql(sql, "Table MAINTENANCE_LOG created in Oracle.");
+    if (success) {
+        DB.SCHEMA_STATE.maintenanceTableCreated = true;
+        await syncDatabaseFromOracle(false);
+        await loadOracleSchemaTables();
+    }
+}
+
+async function executeDDLAlterML() {
+    if (!odbcState.connected) {
+        showToast("Please log in with ODBC first", "error");
+        openModal('modal-odbc-login');
+        return;
+    }
+    const hasNotes = (DB.USER_TAB_COLUMNS || []).some(c => c.TABLE_NAME === 'MAINTENANCE_LOG' && c.COLUMN_NAME === 'NOTES');
+    if (hasNotes) {
+        showToast("Column NOTES already exists on table MAINTENANCE_LOG.", "info");
+        return;
+    }
+    const sql = "ALTER TABLE MAINTENANCE_LOG ADD (NOTES VARCHAR2(200))";
+    const success = await executeRawSql(sql, "Table MAINTENANCE_LOG altered. Column NOTES added.");
+    if (success) {
+        DB.SCHEMA_STATE.maintenanceHasNotes = true;
+        await syncDatabaseFromOracle(false);
+        await loadOracleSchemaTables();
+    }
+}
+
+// Interactive Create Table Modal & DDL Generator
+function openCreateTableModal() {
+    if (!odbcState.connected) {
+        showToast("Please log in with ODBC first to create tables in Oracle.", "error");
+        openModal('modal-odbc-login');
+        return;
+    }
+
+    const form = document.getElementById('form-create-table');
+    if (form) form.reset();
+
+    const nameInput = document.getElementById('create-table-name');
+    if (nameInput) nameInput.value = '';
+
+    const errBox = document.getElementById('create-table-error');
+    if (errBox) errBox.style.display = 'none';
+
+    const succBox = document.getElementById('create-table-success');
+    if (succBox) succBox.style.display = 'none';
+
+    // Default template: Primary Key and Name column
+    createTableColumns = [
+        { name: 'ID', type: 'NUMBER', primaryKey: true, notNull: false, unique: false, references: '' },
+        { name: 'NAME', type: 'VARCHAR2(100)', primaryKey: false, notNull: true, unique: false, references: '' }
+    ];
+
+    renderColumnRows();
+    updateDdlPreview();
+    openModal('modal-create-table');
+}
+
+function addColumnRow() {
+    createTableColumns.push({
+        name: '',
+        type: 'VARCHAR2(100)',
+        primaryKey: false,
+        notNull: false,
+        unique: false,
+        references: ''
+    });
+    renderColumnRows();
+    updateDdlPreview();
+}
+
+function removeColumnRow(index) {
+    if (createTableColumns.length <= 1) {
+        showToast("Table must have at least one column.", "warning");
+        return;
+    }
+    createTableColumns.splice(index, 1);
+    renderColumnRows();
+    updateDdlPreview();
+}
+
+function renderColumnRows() {
+    const container = document.getElementById('create-table-columns-list');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const typeOptions = [
+        'NUMBER',
+        'VARCHAR2(50)',
+        'VARCHAR2(100)',
+        'VARCHAR2(255)',
+        'DATE',
+        'TIMESTAMP',
+        'CHAR(10)',
+        'FLOAT',
+        'CLOB'
+    ];
+
+    createTableColumns.forEach((col, idx) => {
+        const item = document.createElement('div');
+        item.className = 'col-builder-item';
+        item.innerHTML = `
+            <div class="col-builder-top">
+                <input type="text" placeholder="Column Name (e.g. ID, NAME)" value="${escapeHtml(col.name)}" 
+                    oninput="createTableColumns[${idx}].name = this.value.toUpperCase(); updateDdlPreview();" maxlength="30" required>
+                <select onchange="createTableColumns[${idx}].type = this.value; updateDdlPreview();">
+                    ${typeOptions.map(t => `<option value="${t}" ${col.type === t ? 'selected' : ''}>${t}</option>`).join('')}
+                </select>
+                <button type="button" class="btn-remove-col" title="Remove Column" onclick="removeColumnRow(${idx})">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            </div>
+            <div class="col-builder-bottom">
+                <div class="col-checkbox-group">
+                    <label>
+                        <input type="checkbox" ${col.primaryKey ? 'checked' : ''} 
+                            onchange="onPkChange(${idx}, this.checked)">
+                        PK
+                    </label>
+                    <label>
+                        <input type="checkbox" ${col.notNull ? 'checked' : ''} ${col.primaryKey ? 'disabled' : ''}
+                            onchange="createTableColumns[${idx}].notNull = this.checked; updateDdlPreview();">
+                        NOT NULL
+                    </label>
+                    <label>
+                        <input type="checkbox" ${col.unique ? 'checked' : ''} ${col.primaryKey ? 'disabled' : ''}
+                            onchange="createTableColumns[${idx}].unique = this.checked; updateDdlPreview();">
+                        UNIQUE
+                    </label>
+                </div>
+                <div>
+                    <input type="text" class="col-ref-input" placeholder="FK Ref (e.g. POWER_PLANT(PLANT_ID))" value="${escapeHtml(col.references || '')}"
+                        oninput="createTableColumns[${idx}].references = this.value.toUpperCase(); updateDdlPreview();">
+                </div>
+            </div>
+        `;
+        container.appendChild(item);
+    });
+}
+
+function onPkChange(idx, isChecked) {
+    if (isChecked) {
+        createTableColumns.forEach((c, i) => {
+            if (i !== idx) c.primaryKey = false;
+        });
+        createTableColumns[idx].primaryKey = true;
+        createTableColumns[idx].notNull = false;
+        createTableColumns[idx].unique = false;
+    } else {
+        createTableColumns[idx].primaryKey = false;
+    }
+    renderColumnRows();
+    updateDdlPreview();
+}
+
+function updateDdlPreview() {
+    const nameInput = document.getElementById('create-table-name');
+    const previewEl = document.getElementById('create-table-ddl-preview');
+    if (!previewEl) return;
+
+    const tableName = (nameInput ? nameInput.value.trim().toUpperCase() : '') || 'TABLE_NAME';
+
+    const colDefs = createTableColumns.map(col => {
+        const cName = col.name ? col.name.trim().toUpperCase() : 'COLUMN';
+        let def = `${cName} ${col.type}`;
+        if (col.primaryKey) def += ' PRIMARY KEY';
+        else {
+            if (col.notNull) def += ' NOT NULL';
+            if (col.unique) def += ' UNIQUE';
+        }
+        if (col.references) {
+            def += ` REFERENCES ${col.references.trim().toUpperCase()}`;
+        }
+        return `    ${def}`;
+    });
+
+    const ddl = `CREATE TABLE ${tableName} (\n${colDefs.join(',\n')}\n);`;
+    previewEl.textContent = ddl;
+}
+
+async function handleCreateTable(event) {
+    if (event) event.preventDefault();
+
+    const nameInput = document.getElementById('create-table-name');
+    const tableName = (nameInput ? nameInput.value.trim().toUpperCase() : '');
+    const errBox = document.getElementById('create-table-error');
+    const errMsg = document.getElementById('create-table-error-msg');
+    const succBox = document.getElementById('create-table-success');
+    const succMsg = document.getElementById('create-table-success-msg');
+    const submitBtn = document.getElementById('btnSubmitCreateTable');
+
+    if (!tableName) {
+        if (errBox) errBox.style.display = 'flex';
+        if (errMsg) errMsg.textContent = 'Table name is required.';
+        return;
+    }
+
+    if (!/^[A-Z][A-Z0-9_$]{0,29}$/.test(tableName)) {
+        if (errBox) errBox.style.display = 'flex';
+        if (errMsg) errMsg.textContent = `Invalid table name '${tableName}'. Must be 1-30 characters, begin with a letter, and contain only letters, numbers, and underscores.`;
+        return;
+    }
+
+    for (let i = 0; i < createTableColumns.length; i++) {
+        const c = createTableColumns[i];
+        if (!c.name || !c.name.trim()) {
+            if (errBox) errBox.style.display = 'flex';
+            if (errMsg) errMsg.textContent = `Column #${i + 1} is missing a name.`;
+            return;
+        }
+        if (!/^[A-Z][A-Z0-9_$]{0,29}$/.test(c.name.trim().toUpperCase())) {
+            if (errBox) errBox.style.display = 'flex';
+            if (errMsg) errMsg.textContent = `Invalid column name '${c.name}'. Must be 1-30 characters and start with a letter.`;
+            return;
+        }
+    }
+
+    if (errBox) errBox.style.display = 'none';
+    if (succBox) succBox.style.display = 'none';
+
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Executing DDL in Oracle...';
+    }
+
+    try {
+        const csrfToken = await ensureCsrfToken();
+        const res = await fetch(apiUrl('/api/odbc/create-table'), {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({
+                tableName,
+                columns: createTableColumns
+            })
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+            if (succBox) succBox.style.display = 'flex';
+            if (succMsg) succMsg.textContent = data.message || `Table ${tableName} successfully created in Oracle!`;
+            showToast(`Table ${tableName} created and verified in Oracle!`, "success");
+
+            await loadOracleSchemaTables();
+
+            setTimeout(() => {
+                closeModal('modal-create-table');
+                if (succBox) succBox.style.display = 'none';
+            }, 1200);
+        } else {
+            if (errBox) errBox.style.display = 'flex';
+            if (errMsg) errMsg.innerHTML = `<strong>Oracle DDL Error:</strong><br>${escapeHtml(data.error || 'Failed to create table.')}`;
+            showToast("Failed to create table in Oracle", "error");
+        }
+    } catch (e) {
+        if (errBox) errBox.style.display = 'flex';
+        if (errMsg) errMsg.textContent = `Network / Execution Error: ${e.message}`;
+        showToast("Error executing DDL", "error");
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fa-solid fa-play"></i> Execute CREATE TABLE';
+        }
+    }
+}
+
+function confirmDropTable(tableName) {
+    const msg = document.getElementById('delete-confirm-message');
+    const warnBox = document.getElementById('delete-cascade-warning');
+    if (msg) {
+        msg.innerHTML = `Are you sure you want to drop table <strong>${escapeHtml(tableName)}</strong> from Oracle?<br><br>` +
+            `<small style="color:var(--accent-amber);"><i class="fa-solid fa-triangle-exclamation"></i> This will execute <code>DROP TABLE ${escapeHtml(tableName)} CASCADE CONSTRAINTS</code> in Oracle XE.</small>`;
+    }
+    if (warnBox) warnBox.style.display = 'flex';
+
+    pendingDeleteAction = async () => {
+        try {
+            const csrfToken = await ensureCsrfToken();
+            const res = await fetch(apiUrl('/api/odbc/drop-table'), {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrfToken
+                },
+                body: JSON.stringify({ tableName })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                showToast(`Table ${tableName} dropped from Oracle.`, "success");
+                await loadOracleSchemaTables();
+                closeModal('modal-confirm-delete');
+            } else {
+                showToast(data.error || "Failed to drop table", "error");
+            }
+        } catch (e) {
+            showToast(e.message, "error");
+        }
+    };
+
+    const confirmBtn = document.getElementById('btnConfirmDeleteAction');
+    if (confirmBtn) {
+        confirmBtn.onclick = pendingDeleteAction;
+    }
+    openModal('modal-confirm-delete');
+}
+
 
 // SQL Terminal Execution
 function loadSQLPreset(presetKey) {
@@ -1107,9 +1759,14 @@ async function runCustomSQL() {
 
     if (odbcState.connected) {
         try {
+            const csrfToken = await ensureCsrfToken();
             const res = await fetch(apiUrl('/api/odbc/query'), {
+                credentials: 'same-origin',
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrfToken
+                },
                 body: JSON.stringify({ sql: cleanSql })
             });
             const data = await res.json();
@@ -1162,9 +1819,14 @@ async function executeRawSql(sql, successMsg = "Statement executed") {
         return;
     }
     try {
+        const csrfToken = await ensureCsrfToken();
         const res = await fetch(apiUrl('/api/odbc/query'), {
+                credentials: 'same-origin',
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
             body: JSON.stringify({ sql })
         });
         const data = await res.json();
@@ -1179,6 +1841,22 @@ async function executeRawSql(sql, successMsg = "Statement executed") {
         showToast(e.message, "error");
         return false;
     }
+}
+
+function openAddPlant() {
+    const form = document.getElementById('form-plant');
+    if (form) form.reset();
+    const mode = document.getElementById('plant-mode');
+    if (mode) mode.value = 'add';
+    const title = document.getElementById('modal-plant-title');
+    if (title) title.innerHTML = '<i class="fa-solid fa-industry"></i> Add Power Plant';
+    const idInput = document.getElementById('plant-id');
+    if (idInput) {
+        idInput.readOnly = false;
+        const maxId = DB.POWER_PLANT.reduce((max, p) => Math.max(max, Number(p.PLANT_ID || 0)), 0);
+        idInput.value = maxId + 1;
+    }
+    openModal('modal-add-plant');
 }
 
 // Plant CRUD
@@ -1294,6 +1972,23 @@ function viewPlantDetails(plantId) {
     openModal('modal-view-plant');
 }
 
+function openAddGenerator() {
+    const form = document.getElementById('form-generator');
+    if (form) form.reset();
+    const mode = document.getElementById('generator-mode');
+    if (mode) mode.value = 'add';
+    const title = document.getElementById('modal-generator-title');
+    if (title) title.innerHTML = '<i class="fa-solid fa-gears"></i> Add Generator';
+    const idInput = document.getElementById('generator-id');
+    if (idInput) {
+        idInput.readOnly = false;
+        const maxId = DB.GENERATOR.reduce((max, g) => Math.max(max, Number(g.GENERATOR_ID || 0)), 0);
+        idInput.value = maxId ? maxId + 1 : 101;
+    }
+    populatePlantDropdowns();
+    openModal('modal-add-generator');
+}
+
 // Generator CRUD
 async function saveGenerator(event) {
     event.preventDefault();
@@ -1336,11 +2031,40 @@ function openEditGenerator(id) {
     openModal('modal-add-generator');
 }
 
-async function deleteGenerator(id) {
-    if (confirm(`Delete generator unit #${id} from Oracle?`)) {
-        await executeRawSql(`DELETE FROM GENERATOR WHERE GENERATOR_ID = ${id}`, `Generator #${id} deleted from Oracle.`);
-        await syncDatabaseFromOracle(false);
+function deleteGenerator(id) {
+    const g = DB.GENERATOR.find(x => Number(x.GENERATOR_ID) === Number(id));
+    const name = g ? g.GENERATOR_NAME : `#${id}`;
+    const warnBox = document.getElementById('delete-cascade-warning');
+    const msg = document.getElementById('delete-confirm-message');
+    msg.textContent = `Are you sure you want to delete generator "${name}" (ID: ${id}) from Oracle?`;
+    if (warnBox) warnBox.style.display = 'none';
+
+    pendingDeleteAction = async () => {
+        const ok = await executeRawSql(`DELETE FROM GENERATOR WHERE GENERATOR_ID = ${id}`, `Generator #${id} deleted from Oracle.`);
+        if (ok) {
+            await syncDatabaseFromOracle(false);
+            closeModal('modal-confirm-delete');
+        }
+    };
+    document.getElementById('btnConfirmDeleteAction').onclick = pendingDeleteAction;
+    openModal('modal-confirm-delete');
+}
+
+function openAddEmployee() {
+    const form = document.getElementById('form-employee');
+    if (form) form.reset();
+    const mode = document.getElementById('employee-mode');
+    if (mode) mode.value = 'add';
+    const title = document.getElementById('modal-employee-title');
+    if (title) title.innerHTML = '<i class="fa-solid fa-user-plus"></i> Register Employee';
+    const idInput = document.getElementById('employee-id');
+    if (idInput) {
+        idInput.readOnly = false;
+        const maxId = DB.EMPLOYEE.reduce((max, e) => Math.max(max, Number(e.EMPLOYEE_ID || 0)), 0);
+        idInput.value = maxId ? maxId + 1 : 201;
     }
+    populatePlantDropdowns();
+    openModal('modal-add-employee');
 }
 
 // Employee CRUD
@@ -1385,11 +2109,44 @@ function openEditEmployee(id) {
     openModal('modal-add-employee');
 }
 
-async function deleteEmployee(id) {
-    if (confirm(`Remove employee #${id} from Oracle?`)) {
-        await executeRawSql(`DELETE FROM EMPLOYEE WHERE EMPLOYEE_ID = ${id}`, `Employee #${id} removed from Oracle.`);
-        await syncDatabaseFromOracle(false);
+function deleteEmployee(id) {
+    const e = DB.EMPLOYEE.find(x => Number(x.EMPLOYEE_ID) === Number(id));
+    const name = e ? e.EMPLOYEE_NAME : `#${id}`;
+    const warnBox = document.getElementById('delete-cascade-warning');
+    const msg = document.getElementById('delete-confirm-message');
+    msg.textContent = `Are you sure you want to remove employee "${name}" (ID: ${id}) from Oracle?`;
+    if (warnBox) warnBox.style.display = 'none';
+
+    pendingDeleteAction = async () => {
+        const ok = await executeRawSql(`DELETE FROM EMPLOYEE WHERE EMPLOYEE_ID = ${id}`, `Employee #${id} removed from Oracle.`);
+        if (ok) {
+            await syncDatabaseFromOracle(false);
+            closeModal('modal-confirm-delete');
+        }
+    };
+    document.getElementById('btnConfirmDeleteAction').onclick = pendingDeleteAction;
+    openModal('modal-confirm-delete');
+}
+
+function openAddRecord() {
+    const form = document.getElementById('form-record');
+    if (form) form.reset();
+    const mode = document.getElementById('record-mode');
+    if (mode) mode.value = 'add';
+    const title = document.getElementById('modal-record-title');
+    if (title) title.innerHTML = '<i class="fa-solid fa-bolt"></i> Log Generation Record';
+    const idInput = document.getElementById('record-id');
+    if (idInput) {
+        idInput.readOnly = false;
+        const maxId = DB.GENERATION_RECORD.reduce((max, r) => Math.max(max, Number(r.RECORD_ID || 0)), 0);
+        idInput.value = maxId ? maxId + 1 : 301;
     }
+    const dateInput = document.getElementById('record-date');
+    if (dateInput) {
+        dateInput.value = new Date().toISOString().split('T')[0];
+    }
+    populatePlantDropdowns();
+    openModal('modal-add-record');
 }
 
 // Generation Record CRUD
@@ -1434,11 +2191,44 @@ function openEditRecord(id) {
     openModal('modal-add-record');
 }
 
-async function deleteRecord(id) {
-    if (confirm(`Delete generation record #${id} from Oracle?`)) {
-        await executeRawSql(`DELETE FROM GENERATION_RECORD WHERE RECORD_ID = ${id}`, `Record #${id} deleted.`);
-        await syncDatabaseFromOracle(false);
+function deleteRecord(id) {
+    const r = DB.GENERATION_RECORD.find(x => Number(x.RECORD_ID) === Number(id));
+    const label = r ? `${r.UNITS_GENERATED} MWh on ${r.GENERATION_DATE}` : `#${id}`;
+    const warnBox = document.getElementById('delete-cascade-warning');
+    const msg = document.getElementById('delete-confirm-message');
+    msg.textContent = `Are you sure you want to delete generation record #${id} (${label}) from Oracle?`;
+    if (warnBox) warnBox.style.display = 'none';
+
+    pendingDeleteAction = async () => {
+        const ok = await executeRawSql(`DELETE FROM GENERATION_RECORD WHERE RECORD_ID = ${id}`, `Generation record #${id} deleted.`);
+        if (ok) {
+            await syncDatabaseFromOracle(false);
+            closeModal('modal-confirm-delete');
+        }
+    };
+    document.getElementById('btnConfirmDeleteAction').onclick = pendingDeleteAction;
+    openModal('modal-confirm-delete');
+}
+
+function openAddMaintenance() {
+    const form = document.getElementById('form-maintenance');
+    if (form) form.reset();
+    const mode = document.getElementById('maintenance-mode');
+    if (mode) mode.value = 'add';
+    const title = document.getElementById('modal-maintenance-title');
+    if (title) title.innerHTML = '<i class="fa-solid fa-wrench"></i> Log Maintenance Work';
+    const idInput = document.getElementById('maint-id');
+    if (idInput) {
+        idInput.readOnly = false;
+        const maxId = DB.MAINTENANCE_LOG.reduce((max, m) => Math.max(max, Number(m.LOG_ID || 0)), 0);
+        idInput.value = maxId ? maxId + 1 : 401;
     }
+    const dateInput = document.getElementById('maint-date');
+    if (dateInput) {
+        dateInput.value = new Date().toISOString().split('T')[0];
+    }
+    populatePlantDropdowns();
+    openModal('modal-add-maintenance');
 }
 
 // Maintenance Log CRUD
@@ -1495,11 +2285,23 @@ function openEditMaintenance(id) {
     openModal('modal-add-maintenance');
 }
 
-async function deleteMaintenance(id) {
-    if (confirm(`Delete maintenance entry #${id} from Oracle?`)) {
-        await executeRawSql(`DELETE FROM MAINTENANCE_LOG WHERE LOG_ID = ${id}`, `Maintenance log #${id} deleted.`);
-        await syncDatabaseFromOracle(false);
-    }
+function deleteMaintenance(id) {
+    const m = DB.MAINTENANCE_LOG.find(x => Number(x.LOG_ID) === Number(id));
+    const label = m ? `${m.DESCRIPTION} ($${m.COST})` : `#${id}`;
+    const warnBox = document.getElementById('delete-cascade-warning');
+    const msg = document.getElementById('delete-confirm-message');
+    msg.textContent = `Are you sure you want to delete maintenance entry #${id} (${label}) from Oracle?`;
+    if (warnBox) warnBox.style.display = 'none';
+
+    pendingDeleteAction = async () => {
+        const ok = await executeRawSql(`DELETE FROM MAINTENANCE_LOG WHERE LOG_ID = ${id}`, `Maintenance log #${id} deleted.`);
+        if (ok) {
+            await syncDatabaseFromOracle(false);
+            closeModal('modal-confirm-delete');
+        }
+    };
+    document.getElementById('btnConfirmDeleteAction').onclick = pendingDeleteAction;
+    openModal('modal-confirm-delete');
 }
 
 // Global search and filters
@@ -1548,21 +2350,23 @@ function sortTable(tableKey, column) {
     else if (tableKey === 'records') renderRecordsTable();
 }
 
+function openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.classList.add('active');
+        populatePlantDropdowns();
+    }
+}
+
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.classList.remove('active');
+    }
+}
+
 // Modal handling
 function initModals() {
-    window.openModal = function(modalId) {
-        const modal = document.getElementById(modalId);
-        if (modal) {
-            modal.classList.add('active');
-            populatePlantDropdowns();
-        }
-    };
-
-    window.closeModal = function(modalId) {
-        const modal = document.getElementById(modalId);
-        if (modal) modal.classList.remove('active');
-    };
-
     document.querySelectorAll('.modal-overlay').forEach(overlay => {
         overlay.addEventListener('click', (e) => {
             if (e.target === overlay) overlay.classList.remove('active');
@@ -1574,11 +2378,23 @@ function initModals() {
             document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
         }
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-            if (document.getElementById('tab-sql').classList.contains('active')) {
+            const sqlTab = document.getElementById('tab-sql');
+            if (sqlTab && sqlTab.classList.contains('active')) {
                 runCustomSQL();
             }
         }
     });
+
+    // Programmatically bind ODBC login form to prevent default page refresh
+    const odbcForm = document.getElementById('form-odbc-login');
+    if (odbcForm) {
+        odbcForm.onsubmit = function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            handleOdbcLogin(e);
+            return false;
+        };
+    }
 }
 
 function exportDatabaseSQL() {
@@ -1653,3 +2469,61 @@ function escapeHtml(str) {
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
 }
+
+// Expose all interactive functions globally on window for inline HTML event handlers
+Object.assign(window, {
+    openModal,
+    closeModal,
+    openAddPlant,
+    openAddGenerator,
+    openAddEmployee,
+    openAddRecord,
+    openAddMaintenance,
+    openEditPlant,
+    confirmDeletePlant,
+    viewPlantDetails,
+    openEditGenerator,
+    deleteGenerator,
+    openEditEmployee,
+    deleteEmployee,
+    openEditRecord,
+    deleteRecord,
+    openEditMaintenance,
+    deleteMaintenance,
+    savePlant,
+    saveGenerator,
+    saveEmployee,
+    saveRecord,
+    saveMaintenance,
+    handleOdbcLogin,
+    handleOdbcDisconnect,
+    handleLogout,
+    openSwitchAccountModal,
+    syncDatabaseFromOracle,
+    exportDatabaseSQL,
+    switchTab,
+    sortTable,
+    exportReportCSV,
+    loadReport,
+    executeDDLCreateML,
+    executeDDLAlterML,
+    inspectSchemaColumns,
+    clearSQLEditor,
+    runCustomSQL,
+    loadSQLPreset,
+    filterGenerators,
+    filterEmployees,
+    filterRecords,
+    showToast,
+    escapeHtml,
+    openCreateTableModal,
+    addColumnRow,
+    removeColumnRow,
+    onPkChange,
+    updateDdlPreview,
+    handleCreateTable,
+    confirmDropTable,
+    loadOracleSchemaTables,
+    filterCatalogTable
+});
+
